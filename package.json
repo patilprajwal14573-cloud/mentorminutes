@@ -1,0 +1,20 @@
+{
+  "name": "mentorminutes",
+  "version": "1.0.0",
+  "description": "Full-Stack Mentoring Session & Progress Management Platform with Automatic Action Carry-Forward",
+  "private": true,
+  "scripts": {
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build:client": "cd client && npm run build",
+    "build:server": "cd server && npm run build",
+    "build": "npm run build:client",
+    "seed": "cd server && npm run seed",
+    "test:server": "cd server && npm test",
+    "test": "npm run test:server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

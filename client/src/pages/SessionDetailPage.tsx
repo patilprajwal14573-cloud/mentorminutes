@@ -1,0 +1,416 @@
+import React, { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import {
+  Calendar,
+  Clock,
+  ArrowLeft,
+  CheckCircle2,
+  Lock,
+  MessageSquare,
+  Plus,
+  Save,
+  Check,
+  History,
+  FileText,
+  AlertTriangle,
+} from 'lucide-react';
+import api from '@/services/api';
+import { useAuth } from '@/context/AuthContext';
+import { Session, ActionItem } from '@/types';
+import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+import { Modal } from '@/components/common/Modal';
+import { StatusBadge, CarryForwardBadge } from '@/components/common/Badge';
+import { ActionCard } from '@/components/actions/ActionCard';
+import { CarryForwardBanner } from '@/components/sessions/CarryForwardBanner';
+
+export const SessionDetailPage: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+
+  const [session, setSession] = useState<Session | null>(null);
+  const [actions, setActions] = useState<ActionItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Editable session notes
+  const [topicsDiscussed, setTopicsDiscussed] = useState('');
+  const [keyTakeaways, setKeyTakeaways] = useState('');
+  const [sharedSummary, setSharedSummary] = useState('');
+  const [learnerFeedback, setLearnerFeedback] = useState('');
+  const [mentorPrivateNotes, setMentorPrivateNotes] = useState('');
+  const [sessionStatus, setSessionStatus] = useState<string>('scheduled');
+
+  // Add Action Item modal
+  const [showAddActionModal, setShowAddActionModal] = useState(false);
+  const [actionTitle, setActionTitle] = useState('');
+  const [actionDesc, setActionDesc] = useState('');
+  const [actionPriority, setActionPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [actionDueDate, setActionDueDate] = useState('');
+  const [actionRole, setActionRole] = useState<'learner' | 'mentor'>('learner');
+
+  const fetchSessionDetails = async () => {
+    try {
+      const res = await api.get(`/sessions/${id}`);
+      if (res.data.success) {
+        const s = res.data.session;
+        setSession(s);
+        setActions(res.data.actions || []);
+        setTopicsDiscussed(s.topicsDiscussed || '');
+        setKeyTakeaways(s.keyTakeaways || '');
+        setSharedSummary(s.sharedSummary || '');
+        setLearnerFeedback(s.learnerFeedback || '');
+        setMentorPrivateNotes(s.mentorPrivateNotes || '');
+        setSessionStatus(s.status || 'scheduled');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSessionDetails();
+  }, [id]);
+
+  const handleSaveNotes = async () => {
+    setSavingNotes(true);
+    setSaveSuccess(false);
+    try {
+      const res = await api.put(`/sessions/${id}`, {
+        topicsDiscussed,
+        keyTakeaways,
+        sharedSummary,
+        learnerFeedback,
+        mentorPrivateNotes,
+        status: sessionStatus,
+      });
+      if (res.data.success) {
+        setSession(res.data.session);
+        setSaveSuccess(true);
+        setTimeout(() => setSaveSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingNotes(false);
+    }
+  };
+
+  const handleActionStatusChange = async (actionId: string, status: string) => {
+    try {
+      await api.patch(`/actions/${actionId}/status`, { status });
+      fetchSessionDetails();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleCreateAction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!session) return;
+    try {
+      const partner = isMentor ? session.relationship?.learner : session.relationship?.mentor;
+      const assignedToId = actionRole === 'mentor' ? session.relationship?.mentor._id : partner?._id;
+
+      await api.post('/actions', {
+        relationshipId: session.relationship._id,
+        sessionId: session._id,
+        title: actionTitle,
+        description: actionDesc,
+        priority: actionPriority,
+        dueDate: actionDueDate || undefined,
+        assignedTo: assignedToId,
+        assignedToRole: actionRole,
+      });
+
+      setShowAddActionModal(false);
+      setActionTitle('');
+      setActionDesc('');
+      setActionDueDate('');
+      fetchSessionDetails();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  if (loading) return <LoadingSpinner text="Loading Session Workspace..." />;
+  if (!session) return <p className="text-center p-8">Session not found</p>;
+
+  const isMentor = user?.role === 'mentor';
+  const carriedItems = actions.filter((a) => a.carryCount > 0);
+
+  return (
+    <div className="space-y-6">
+      {/* Top Bar with back link and save actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Link
+            to="/sessions"
+            className="p-2 bg-white rounded-xl border border-slate-200 text-slate-500 hover:text-slate-900 shadow-2xs transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-md">
+                Session #{session.sessionNumber}
+              </span>
+              <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                {session.title}
+              </h1>
+              <StatusBadge status={session.status} />
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Scheduled on {new Date(session.scheduledDate).toLocaleString()} · Duration: {session.durationMinutes} mins
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {isMentor && (
+            <select
+              value={sessionStatus}
+              onChange={(e) => setSessionStatus(e.target.value)}
+              className="text-xs font-semibold rounded-xl border-slate-300 bg-white py-2 px-3 shadow-2xs"
+            >
+              <option value="scheduled">Scheduled</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          )}
+
+          <button
+            onClick={handleSaveNotes}
+            disabled={savingNotes}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+          >
+            {saveSuccess ? (
+              <>
+                <Check className="w-4 h-4 text-emerald-300" /> Saved!
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4" /> {savingNotes ? 'Saving...' : 'Save Workspace'}
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Automatic Action Carry-Forward Banner */}
+      {carriedItems.length > 0 && (
+        <CarryForwardBanner
+          carriedActions={carriedItems}
+          currentSessionNumber={session.sessionNumber}
+        />
+      )}
+
+      {/* Agenda & Summary Grid */}
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          {/* Discussion Notes Card */}
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs space-y-4">
+            <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <FileText className="w-4 h-4 text-indigo-600" /> Discussion & Shared Notes
+            </h2>
+
+            {session.agenda && (
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-100 text-xs">
+                <span className="font-bold text-slate-700 block mb-1">Session Agenda:</span>
+                <p className="text-slate-600 whitespace-pre-line">{session.agenda}</p>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Topics Discussed
+              </label>
+              <textarea
+                rows={3}
+                value={topicsDiscussed}
+                onChange={(e) => setTopicsDiscussed(e.target.value)}
+                placeholder="Log key topics, concepts explored, and discussion points..."
+                className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Key Takeaways & Summary
+              </label>
+              <textarea
+                rows={3}
+                value={keyTakeaways}
+                onChange={(e) => setKeyTakeaways(e.target.value)}
+                placeholder="Important conclusions and next steps agreed upon..."
+                className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Learner Visible Feedback
+              </label>
+              <textarea
+                rows={2}
+                value={learnerFeedback}
+                onChange={(e) => setLearnerFeedback(e.target.value)}
+                placeholder="Positive feedback and actionable guidance for the mentee..."
+                className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          {/* Private Mentor Notes (Strictly hidden from learner!) */}
+          {isMentor && (
+            <div className="bg-indigo-50/50 rounded-2xl p-6 border border-indigo-200/80 shadow-2xs space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-indigo-950 flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-indigo-600" /> Private Mentor Notes
+                </h3>
+                <span className="text-[10px] uppercase font-bold tracking-wider bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded-full">
+                  Confidential
+                </span>
+              </div>
+              <p className="text-xs text-indigo-800/80">
+                🔒 These notes are scrubbed in the backend API and never accessible by learners.
+              </p>
+              <textarea
+                rows={3}
+                value={mentorPrivateNotes}
+                onChange={(e) => setMentorPrivateNotes(e.target.value)}
+                placeholder="Private mentor observations, candid progress assessment, reminders for future sessions..."
+                className="w-full text-xs p-3 bg-white border border-indigo-200 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Action Items Column */}
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Session Action Items</h3>
+                <p className="text-xs text-slate-500">
+                  {actions.length} {actions.length === 1 ? 'task' : 'tasks'} assigned
+                </p>
+              </div>
+              <button
+                onClick={() => setShowAddActionModal(true)}
+                className="p-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-xl transition-colors"
+                title="Add new action item"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {actions.length === 0 ? (
+                <p className="text-xs text-slate-400 py-6 text-center">
+                  No action items assigned for this session yet.
+                </p>
+              ) : (
+                actions.map((action) => (
+                  <ActionCard
+                    key={action._id}
+                    action={action}
+                    onStatusChange={handleActionStatusChange}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Add Action Item Modal */}
+      <Modal
+        isOpen={showAddActionModal}
+        onClose={() => setShowAddActionModal(false)}
+        title="Add Action Item"
+        subtitle={`Assign task for Session #${session.sessionNumber}`}
+      >
+        <form onSubmit={handleCreateAction} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Task Title</label>
+            <input
+              type="text"
+              required
+              value={actionTitle}
+              onChange={(e) => setActionTitle(e.target.value)}
+              placeholder="e.g. Implement JWT authentication guard"
+              className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Description</label>
+            <textarea
+              rows={2}
+              value={actionDesc}
+              onChange={(e) => setActionDesc(e.target.value)}
+              placeholder="Detailed acceptance criteria or guidance..."
+              className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Priority</label>
+              <select
+                value={actionPriority}
+                onChange={(e) => setActionPriority(e.target.value as any)}
+                className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Due Date</label>
+              <input
+                type="date"
+                value={actionDueDate}
+                onChange={(e) => setActionDueDate(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Assign To</label>
+            <select
+              value={actionRole}
+              onChange={(e) => setActionRole(e.target.value as any)}
+              className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="learner">Learner ({session.relationship?.learner?.name})</option>
+              <option value="mentor">Mentor ({session.relationship?.mentor?.name})</option>
+            </select>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setShowAddActionModal(false)}
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl"
+            >
+              Add Action Item
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+};
