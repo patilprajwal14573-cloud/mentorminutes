@@ -1,6 +1,13 @@
 export type UserRole = 'mentor' | 'learner';
 
+export interface UserSettings {
+  emailNotifications: boolean;
+  sessionReminders: boolean;
+  theme: 'light' | 'dark' | 'system';
+}
+
 export interface User {
+  id?: string;
   _id: string;
   name: string;
   email: string;
@@ -12,11 +19,7 @@ export interface User {
   expertise?: string[];
   interests?: string[];
   inviteCode?: string;
-  settings?: {
-    emailNotifications: boolean;
-    sessionReminders: boolean;
-    theme: 'light' | 'dark' | 'system';
-  };
+  settings?: UserSettings;
   createdAt: string;
 }
 

@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import axios from 'axios';
+import React, { useEffect, useState } from 'react';
 import {
   User,
   Lock,
@@ -9,14 +8,19 @@ import {
   Copy,
   KeyRound,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import api from '@/services/api';
+import {
+  changePasswordWithVerification,
+  regenerateInviteCodeRpc,
+  updateProfileInDb,
+} from '@/services/authService';
 
 type ThemeOption = 'light' | 'dark' | 'system';
 
 export const SettingsPage: React.FC = () => {
-  const { user, updateUser } = useAuth();
+  const { user, updateUser, refreshUser } = useAuth();
 
   // Profile form
   const [name, setName] = useState(user?.name || '');
@@ -35,6 +39,7 @@ export const SettingsPage: React.FC = () => {
   const [theme, setTheme] = useState<ThemeOption>(user?.settings?.theme ?? 'light');
   const [prefsSaving, setPrefsSaving] = useState(false);
   const [prefsSuccess, setPrefsSuccess] = useState(false);
+  const [prefsError, setPrefsError] = useState('');
 
   // Password form
   const [currentPassword, setCurrentPassword] = useState('');
@@ -44,29 +49,50 @@ export const SettingsPage: React.FC = () => {
   // Status feedback
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
+  const [profileError, setProfileError] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [passwordError, setPasswordError] = useState('');
   const [copiedCode, setCopiedCode] = useState(false);
+  const [regeneratingCode, setRegeneratingCode] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    setName(user.name || '');
+    setTitle(user.title || '');
+    setCompanyOrSchool(user.companyOrSchool || '');
+    setBio(user.bio || '');
+    setAvatar(user.avatar || '');
+    setEmailNotifications(user.settings?.emailNotifications ?? true);
+    setSessionReminders(user.settings?.sessionReminders ?? true);
+    setTheme(user.settings?.theme ?? 'light');
+  }, [user]);
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
+    setProfileError('');
+    setProfileSuccess(false);
+
+    if (!name.trim()) {
+      setProfileError('Full name is required');
+      return;
+    }
+
     setProfileSaving(true);
     try {
-      const res = await api.put('/auth/profile', {
+      const updated = await updateProfileInDb(user._id, {
         name,
         title,
         companyOrSchool,
         bio,
         avatar,
       });
-      if (res.data.success) {
-        updateUser(res.data.user);
-        setProfileSuccess(true);
-        setTimeout(() => setProfileSuccess(false), 3000);
-      }
-    } catch (err) {
-      console.error(err);
+      updateUser(updated);
+      setProfileSuccess(true);
+      setTimeout(() => setProfileSuccess(false), 3000);
+    } catch (err: unknown) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to save profile');
     } finally {
       setProfileSaving(false);
     }
@@ -74,23 +100,23 @@ export const SettingsPage: React.FC = () => {
 
   const handleUpdatePreferences = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
+    setPrefsError('');
     setPrefsSaving(true);
     setPrefsSuccess(false);
     try {
-      const res = await api.put('/auth/profile', {
+      const updated = await updateProfileInDb(user._id, {
         settings: {
           emailNotifications,
           sessionReminders,
           theme,
         },
       });
-      if (res.data.success) {
-        updateUser(res.data.user);
-        setPrefsSuccess(true);
-        setTimeout(() => setPrefsSuccess(false), 3000);
-      }
-    } catch (err) {
-      console.error(err);
+      updateUser(updated);
+      setPrefsSuccess(true);
+      setTimeout(() => setPrefsSuccess(false), 3000);
+    } catch (err: unknown) {
+      setPrefsError(err instanceof Error ? err.message : 'Failed to save preferences');
     } finally {
       setPrefsSaving(false);
     }
@@ -98,7 +124,9 @@ export const SettingsPage: React.FC = () => {
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     setPasswordError('');
+    setPasswordSuccess(false);
 
     if (newPassword !== confirmPassword) {
       setPasswordError('New passwords do not match');
@@ -112,22 +140,14 @@ export const SettingsPage: React.FC = () => {
 
     setPasswordSaving(true);
     try {
-      const res = await api.put('/auth/password', {
-        currentPassword,
-        newPassword,
-      });
-      if (res.data.success) {
-        setPasswordSuccess(true);
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-        setTimeout(() => setPasswordSuccess(false), 3000);
-      }
+      await changePasswordWithVerification(user.email, currentPassword, newPassword);
+      setPasswordSuccess(true);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => setPasswordSuccess(false), 3000);
     } catch (err: unknown) {
-      const msg = axios.isAxiosError(err)
-        ? (err.response?.data as { message?: string } | undefined)?.message || 'Password update failed'
-        : 'Password update failed';
-      setPasswordError(msg);
+      setPasswordError(err instanceof Error ? err.message : 'Password update failed');
     } finally {
       setPasswordSaving(false);
     }
@@ -138,6 +158,18 @@ export const SettingsPage: React.FC = () => {
       navigator.clipboard.writeText(user.inviteCode);
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  const handleRegenerateCode = async () => {
+    setRegeneratingCode(true);
+    try {
+      await regenerateInviteCodeRpc();
+      await refreshUser();
+    } catch (err) {
+      console.error('Failed to regenerate invite code:', err);
+    } finally {
+      setRegeneratingCode(false);
     }
   };
 
@@ -177,6 +209,15 @@ export const SettingsPage: React.FC = () => {
             >
               {copiedCode ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </button>
+            <button
+              type="button"
+              onClick={handleRegenerateCode}
+              disabled={regeneratingCode}
+              className="p-2 bg-white hover:bg-slate-100 text-slate-700 border border-indigo-200 rounded-xl transition-colors shadow-2xs disabled:opacity-50"
+              title="Generate a new invite code"
+            >
+              <RefreshCw className={`w-4 h-4 ${regeneratingCode ? 'animate-spin' : ''}`} />
+            </button>
           </div>
         </div>
       )}
@@ -186,6 +227,13 @@ export const SettingsPage: React.FC = () => {
         <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
           <User className="w-4 h-4 text-indigo-600" /> Public Profile
         </h2>
+
+        {profileError && (
+          <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{profileError}</span>
+          </div>
+        )}
 
         <form onSubmit={handleUpdateProfile} className="space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">
@@ -262,11 +310,13 @@ export const SettingsPage: React.FC = () => {
               <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
                 <Check className="w-4 h-4" /> Profile saved successfully!
               </span>
-            ) : <span />}
+            ) : (
+              <span />
+            )}
             <button
               type="submit"
               disabled={profileSaving}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-60"
             >
               <Save className="w-4 h-4" /> {profileSaving ? 'Saving...' : 'Save Profile'}
             </button>
@@ -280,11 +330,20 @@ export const SettingsPage: React.FC = () => {
           <Bell className="w-4 h-4 text-indigo-600" /> Notification & Theme Preferences
         </h2>
 
+        {prefsError && (
+          <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{prefsError}</span>
+          </div>
+        )}
+
         <form onSubmit={handleUpdatePreferences} className="space-y-4">
           <label className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer">
             <div>
               <p className="text-xs font-bold text-slate-800">In-App Activity Alerts</p>
-              <p className="text-[11px] text-slate-500">Receive alerts when sessions, goals, or actions are updated</p>
+              <p className="text-[11px] text-slate-500">
+                Receive alerts when sessions, goals, or actions are updated
+              </p>
             </div>
             <input
               type="checkbox"
@@ -297,7 +356,9 @@ export const SettingsPage: React.FC = () => {
           <label className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer">
             <div>
               <p className="text-xs font-bold text-slate-800">Session & Deadline Reminders</p>
-              <p className="text-[11px] text-slate-500">Highlight overdue action items and approaching goal deadlines</p>
+              <p className="text-[11px] text-slate-500">
+                Highlight overdue action items and approaching goal deadlines
+              </p>
             </div>
             <input
               type="checkbox"
@@ -325,11 +386,13 @@ export const SettingsPage: React.FC = () => {
               <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
                 <Check className="w-4 h-4" /> Preferences saved!
               </span>
-            ) : <span />}
+            ) : (
+              <span />
+            )}
             <button
               type="submit"
               disabled={prefsSaving}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-60"
             >
               <Save className="w-4 h-4" /> {prefsSaving ? 'Saving...' : 'Save Preferences'}
             </button>
@@ -390,11 +453,13 @@ export const SettingsPage: React.FC = () => {
               <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
                 <Check className="w-4 h-4" /> Password updated!
               </span>
-            ) : <span />}
+            ) : (
+              <span />
+            )}
             <button
               type="submit"
               disabled={passwordSaving}
-              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-sm transition-all disabled:opacity-60"
             >
               {passwordSaving ? 'Updating...' : 'Update Password'}
             </button>

@@ -188,9 +188,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
                 <Settings className="w-4 h-4 text-slate-400" /> Account Settings
               </Link>
               <button
-                onClick={() => {
+                onClick={async () => {
                   setShowUserMenu(false);
-                  logout();
+                  await logout();
                   navigate('/login');
                 }}
                 className="w-full flex items-center gap-2 px-4 py-2 text-xs text-rose-600 hover:bg-rose-50 border-t border-slate-100 mt-1"

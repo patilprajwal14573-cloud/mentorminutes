@@ -1,27 +1,19 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { AppLayout } from './components/layout/AppLayout';
+import { setPendingInviteCode } from './services/authService';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
 
-// Pages
+// Basic Pages
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
-import { DashboardDispatcher } from './pages/DashboardDispatcher';
-import { RelationshipsPage } from './pages/RelationshipsPage';
-import { SessionsPage } from './pages/SessionsPage';
-import { SessionDetailPage } from './pages/SessionDetailPage';
-import { GoalsPage } from './pages/GoalsPage';
-import { ActionsPage } from './pages/ActionsPage';
-import { TimelinePage } from './pages/TimelinePage';
-import { ReportsPage } from './pages/ReportsPage';
-import { NotificationsPage } from './pages/NotificationsPage';
-import { SettingsPage } from './pages/SettingsPage';
+import { DashboardPage } from './pages/DashboardPage';
+import { SupabaseCheckPage } from './pages/SupabaseCheckPage';
 
 // Protected Route Guard
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, loading } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
 
   if (loading) {
     return (
@@ -31,7 +23,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     );
   }
 
-  if (!isAuthenticated) {
+  if (!isAuthenticated || !user) {
     return <Navigate to="/login" replace />;
   }
 
@@ -61,7 +53,8 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const JoinInviteRoute: React.FC = () => {
   const { code } = useParams<{ code: string }>();
   const { isAuthenticated, loading } = useAuth();
-  const safeCode = encodeURIComponent((code || '').toUpperCase());
+  const normalizedCode = (code || '').trim().toUpperCase();
+  const safeCode = encodeURIComponent(normalizedCode);
 
   if (loading) {
     return (
@@ -72,7 +65,11 @@ const JoinInviteRoute: React.FC = () => {
   }
 
   if (isAuthenticated) {
-    return <Navigate to={`/relationships?invite=${safeCode}`} replace />;
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  if (normalizedCode) {
+    setPendingInviteCode(normalizedCode);
   }
 
   return <Navigate to={`/register?invite=${safeCode}`} replace />;
@@ -83,7 +80,6 @@ export function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public Landing & Auth */}
           <Route path="/" element={<LandingPage />} />
           <Route
             path="/login"
@@ -102,28 +98,17 @@ export function App() {
             }
           />
           <Route path="/join/:code" element={<JoinInviteRoute />} />
+          <Route path="/supabase-check" element={<SupabaseCheckPage />} />
 
-          {/* Protected Application Workspace */}
           <Route
+            path="/dashboard"
             element={
               <ProtectedRoute>
-                <AppLayout />
+                <DashboardPage />
               </ProtectedRoute>
             }
-          >
-            <Route path="/dashboard" element={<DashboardDispatcher />} />
-            <Route path="/relationships" element={<RelationshipsPage />} />
-            <Route path="/sessions" element={<SessionsPage />} />
-            <Route path="/sessions/:id" element={<SessionDetailPage />} />
-            <Route path="/goals" element={<GoalsPage />} />
-            <Route path="/actions" element={<ActionsPage />} />
-            <Route path="/timeline" element={<TimelinePage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Route>
+          />
 
-          {/* Catch-all fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

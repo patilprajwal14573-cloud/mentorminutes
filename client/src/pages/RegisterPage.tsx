@@ -1,16 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Sparkles, ArrowRight, Lock, Mail, User, AlertCircle, KeyRound } from 'lucide-react';
+import {
+  Sparkles,
+  ArrowRight,
+  Lock,
+  Mail,
+  User,
+  AlertCircle,
+  KeyRound,
+  CheckCircle2,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import {
+  joinRelationshipByInviteCodeRpc,
+  setPendingInviteCode,
+} from '../services/authService';
 import { UserRole } from '../types';
-import api from '../services/api';
-
-interface InvitePreview {
-  name: string;
-  title?: string;
-  companyOrSchool?: string;
-  inviteCode: string;
-}
+import { SimpleNavbar } from '../components/layout/SimpleNavbar';
 
 export const RegisterPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -23,31 +29,24 @@ export const RegisterPage: React.FC = () => {
   const [title, setTitle] = useState('');
   const [companyOrSchool, setCompanyOrSchool] = useState('');
   const [inviteCode, setInviteCode] = useState(initialInvite);
-  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
   const [error, setError] = useState('');
+  const [confirmationMessage, setConfirmationMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
   const { register } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!initialInvite) return;
-    setRole('learner');
-    api
-      .get(`/users/invite-preview/${encodeURIComponent(initialInvite)}`)
-      .then((res) => {
-        if (res.data.success) {
-          setInvitePreview(res.data.mentor);
-        }
-      })
-      .catch(() => {
-        setInvitePreview(null);
-      });
+    if (initialInvite) {
+      setRole('learner');
+      setInviteCode(initialInvite);
+    }
   }, [initialInvite]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setConfirmationMessage('');
 
     if (password.length < 6) {
       setError('Password must be at least 6 characters');
@@ -55,6 +54,8 @@ export const RegisterPage: React.FC = () => {
     }
 
     setLoading(true);
+    const trimmedInvite = inviteCode.trim().toUpperCase();
+
     const res = await register({
       name,
       email,
@@ -64,201 +65,232 @@ export const RegisterPage: React.FC = () => {
       companyOrSchool,
     });
 
-    if (res.success) {
-      if (role === 'learner' && inviteCode.trim()) {
-        try {
-          await api.post('/relationships/join-by-code', {
-            inviteCode: inviteCode.trim().toUpperCase(),
-            topic: 'Mentorship Workspace',
-          });
-          setLoading(false);
-          navigate('/relationships');
-          return;
-        } catch {
-          // Account created successfully; fall back to relationships page with invite code prefilled
-          setLoading(false);
-          navigate(`/relationships?invite=${encodeURIComponent(inviteCode.trim().toUpperCase())}`);
-          return;
-        }
-      }
-      setLoading(false);
-      navigate('/dashboard');
-    } else {
+    if (!res.success) {
       setLoading(false);
       setError(res.message || 'Registration failed');
+      return;
     }
+
+    if (res.requiresEmailConfirmation) {
+      if (role === 'learner' && trimmedInvite) {
+        setPendingInviteCode(trimmedInvite);
+      }
+      setLoading(false);
+      setConfirmationMessage(
+        res.message ||
+          'Account created! Please check your email inbox and confirm your email address before signing in.'
+      );
+      return;
+    }
+
+    if (role === 'learner' && trimmedInvite) {
+      try {
+        await joinRelationshipByInviteCodeRpc(trimmedInvite, 'Mentorship Workspace');
+      } catch {
+        // Account was created; user can still view their dashboard
+      }
+    }
+
+    setLoading(false);
+    navigate('/dashboard');
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <Link to="/" className="inline-flex items-center gap-2 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-md shadow-indigo-600/30">
-            <Sparkles className="w-5 h-5" />
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      <SimpleNavbar variant="light" />
+
+      <div className="flex-1 flex flex-col justify-center py-10 px-4 sm:px-6 lg:px-8">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white shadow-md shadow-indigo-600/25 mb-4">
+            <Sparkles className="w-6 h-6" />
           </div>
-          <span className="font-bold text-2xl text-slate-900 tracking-tight">MentorMinutes</span>
-        </Link>
-        <h2 className="text-2xl font-bold text-slate-900">Create your account</h2>
-        <p className="mt-2 text-sm text-slate-600">
-          Already have an account?{' '}
-          <Link to="/login" className="font-semibold text-indigo-600 hover:text-indigo-500">
-            Sign in
-          </Link>
-        </p>
-      </div>
+          <h1 className="text-2xl font-bold text-slate-900">Create your account</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Already have an account?{' '}
+            <Link
+              to={inviteCode ? `/login?invite=${encodeURIComponent(inviteCode)}` : '/login'}
+              className="font-semibold text-indigo-600 hover:text-indigo-500"
+            >
+              Sign in
+            </Link>
+          </p>
+        </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow-xl shadow-slate-200/50 sm:rounded-2xl sm:px-10 border border-slate-200/80">
-          {invitePreview && (
-            <div className="mb-4 p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs flex items-start gap-2.5">
-              <KeyRound className="w-4 h-4 shrink-0 text-indigo-600 mt-0.5" />
-              <div>
-                <p className="font-bold">Invited by {invitePreview.name}</p>
-                <p className="text-indigo-700 mt-0.5">
-                  {invitePreview.title || 'Mentor'} — Register as a learner to connect automatically ({invitePreview.inviteCode}).
-                </p>
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            {/* Role Selector Tabs */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Select Your Role
-              </label>
-              <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setRole('learner')}
-                  className={`py-2 text-xs font-bold rounded-lg transition-all ${
-                    role === 'learner'
-                      ? 'bg-white text-indigo-600 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  🎓 Learner
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRole('mentor')}
-                  className={`py-2 text-xs font-bold rounded-lg transition-all ${
-                    role === 'mentor'
-                      ? 'bg-white text-indigo-600 shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  🧑‍🏫 Mentor
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700">Full Name</label>
-              <div className="mt-1 relative rounded-xl shadow-2xs">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <User className="w-4 h-4" />
+        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+          <div className="bg-white py-8 px-5 shadow-xl shadow-slate-200/50 rounded-2xl sm:px-10 border border-slate-200/80">
+            {initialInvite && !confirmationMessage && (
+              <div className="mb-4 p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs flex items-start gap-2.5">
+                <KeyRound className="w-4 h-4 shrink-0 text-indigo-600 mt-0.5" />
+                <div>
+                  <p className="font-bold">Mentor Invitation Detected</p>
+                  <p className="text-indigo-700 mt-0.5">
+                    Register as a learner to connect automatically with invite code{' '}
+                    <span className="font-mono font-bold">{initialInvite}</span>.
+                  </p>
                 </div>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Alex Morgan"
-                  className="block w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700">Email Address</label>
-              <div className="mt-1 relative rounded-xl shadow-2xs">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@domain.com"
-                  className="block w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-700">Password</label>
-              <div className="mt-1 relative rounded-xl shadow-2xs">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
-                </div>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 6 characters"
-                  className="block w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Title / Major</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder={role === 'mentor' ? 'e.g. Lead Engineer' : 'e.g. CS Student'}
-                  className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">Company / School</label>
-                <input
-                  type="text"
-                  value={companyOrSchool}
-                  onChange={(e) => setCompanyOrSchool(e.target.value)}
-                  placeholder="e.g. Stanford / Google"
-                  className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
-
-            {role === 'learner' && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-700">
-                  Mentor Invite Code <span className="font-normal text-slate-400">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. MM-ARCH99"
-                  className="mt-1 block w-full px-3 py-2 text-sm font-mono uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
-                />
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full mt-2 py-2.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all flex items-center justify-center gap-2"
-            >
-              {loading ? 'Creating account...' : 'Create Account'}
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </form>
+            {error && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {confirmationMessage ? (
+              <div className="space-y-4 text-center py-2">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-200">
+                  <CheckCircle2 className="w-6 h-6" />
+                </div>
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-bold text-slate-900">Verify Your Email</h3>
+                  <p className="text-xs text-slate-600 leading-relaxed">{confirmationMessage}</p>
+                </div>
+                <Link
+                  to={
+                    inviteCode
+                      ? `/login?invite=${encodeURIComponent(inviteCode.trim().toUpperCase())}`
+                      : '/login'
+                  }
+                  className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold inline-flex items-center justify-center gap-2 transition-colors"
+                >
+                  Continue to Sign In <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
+            ) : (
+              <form className="space-y-4" onSubmit={handleSubmit}>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Select Your Role
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setRole('learner')}
+                      className={`py-2 text-xs font-bold rounded-lg transition-all ${
+                        role === 'learner'
+                          ? 'bg-white text-indigo-600 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      🎓 Learner
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRole('mentor')}
+                      className={`py-2 text-xs font-bold rounded-lg transition-all ${
+                        role === 'mentor'
+                          ? 'bg-white text-indigo-600 shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      🧑‍🏫 Mentor
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">Full Name</label>
+                  <div className="mt-1 relative rounded-xl shadow-2xs">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="e.g. Alex Morgan"
+                      className="block w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">Email Address</label>
+                  <div className="mt-1 relative rounded-xl shadow-2xs">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Mail className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@domain.com"
+                      className="block w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700">Password</label>
+                  <div className="mt-1 relative rounded-xl shadow-2xs">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="At least 6 characters"
+                      className="block w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700">Title / Major</label>
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder={role === 'mentor' ? 'e.g. Lead Engineer' : 'e.g. CS Student'}
+                      className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700">Company / School</label>
+                    <input
+                      type="text"
+                      value={companyOrSchool}
+                      onChange={(e) => setCompanyOrSchool(e.target.value)}
+                      placeholder="e.g. Stanford / Google"
+                      className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                </div>
+
+                {role === 'learner' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700">
+                      Mentor Invite Code <span className="font-normal text-slate-400">(Optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={inviteCode}
+                      onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                      placeholder="e.g. MM-ARCH99"
+                      className="mt-1 block w-full px-3 py-2 text-sm font-mono uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full mt-2 py-2.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {loading ? 'Creating account...' : 'Create Account'}
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </form>
+            )}
+          </div>
         </div>
       </div>
     </div>
