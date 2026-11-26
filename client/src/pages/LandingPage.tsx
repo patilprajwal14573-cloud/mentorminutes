@@ -1,11 +1,98 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowRight, Users, ShieldCheck, Sparkles } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { Link, useLocation } from 'react-router-dom';
+import {
+  ArrowRight,
+  Users,
+  ShieldCheck,
+  Sparkles,
+  Compass,
+  GraduationCap,
+  TrendingUp,
+  CheckCircle2,
+  type LucideIcon,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { SimpleNavbar } from '../components/layout/SimpleNavbar';
 
+interface MentoringService {
+  title: string;
+  description: string;
+  benefits: string[];
+  icon: LucideIcon;
+  accentBg: string;
+  accentText: string;
+  accentBorder: string;
+}
+
+const MENTORING_SERVICES: MentoringService[] = [
+  {
+    title: 'One-to-One Mentoring',
+    description:
+      'Personalized mentoring sessions tailored to your individual pace, questions, and learning priorities.',
+    benefits: [
+      'Dedicated 1-on-1 focus with your mentor',
+      'Simple connection using a private mentor invite code',
+      'Structured conversations centered on your growth',
+    ],
+    icon: Users,
+    accentBg: 'from-indigo-500/20 to-indigo-500/5',
+    accentText: 'text-indigo-400',
+    accentBorder: 'border-indigo-500/30',
+  },
+  {
+    title: 'Career Guidance',
+    description:
+      'Clear, practical perspective to help you navigate role choices, career transitions, and next professional steps.',
+    benefits: [
+      'Clarity on career direction and long-term options',
+      'Constructive feedback on your professional readiness',
+      'Thoughtful decision-making support from a mentor',
+    ],
+    icon: Compass,
+    accentBg: 'from-violet-500/20 to-violet-500/5',
+    accentText: 'text-violet-400',
+    accentBorder: 'border-violet-500/30',
+  },
+  {
+    title: 'Academic Mentoring',
+    description:
+      'Steady guidance for students looking to organize coursework, research focus, and effective study habits.',
+    benefits: [
+      'Structured academic check-ins and study direction',
+      'Support breaking down complex subjects and projects',
+      'Consistent encouragement throughout your academic term',
+    ],
+    icon: GraduationCap,
+    accentBg: 'from-sky-500/20 to-sky-500/5',
+    accentText: 'text-sky-400',
+    accentBorder: 'border-sky-500/30',
+  },
+  {
+    title: 'Skill Development',
+    description:
+      'Focused mentoring designed to help you build practical technical, communication, and problem-solving skills.',
+    benefits: [
+      'Targeted skill practice aligned with your objectives',
+      'Actionable feedback on areas to strengthen next',
+      'Continuous momentum as you build real confidence',
+    ],
+    icon: TrendingUp,
+    accentBg: 'from-emerald-500/20 to-emerald-500/5',
+    accentText: 'text-emerald-400',
+    accentBorder: 'border-emerald-500/30',
+  },
+];
+
 export const LandingPage: React.FC = () => {
   const { isAuthenticated } = useAuth();
+  const location = useLocation();
+  const getStartedDestination = isAuthenticated ? '/dashboard' : '/register';
+
+  useEffect(() => {
+    if (location.hash === '#services') {
+      document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [location.hash]);
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col selection:bg-indigo-500 selection:text-white">
@@ -93,6 +180,74 @@ export const LandingPage: React.FC = () => {
               <p className="text-sm text-slate-400 leading-relaxed">
                 Powered by Supabase Authentication and PostgreSQL Row Level Security for safe access.
               </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Mentoring Services Section */}
+        <section id="services" className="py-20 border-t border-slate-800 bg-slate-900 px-4 sm:px-6 scroll-mt-16">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center max-w-2xl mx-auto mb-12">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-semibold mb-3">
+                Mentoring Services
+              </span>
+              <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+                Support tailored to every stage of your journey
+              </h2>
+              <p className="text-sm sm:text-base text-slate-400 mt-3 leading-relaxed">
+                Explore how MentorMinutes helps mentors and learners structure meaningful guidance
+                across personal, academic, and career goals.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {MENTORING_SERVICES.map((service) => {
+                const Icon = service.icon;
+                return (
+                  <article
+                    key={service.title}
+                    className="bg-slate-950/70 border border-slate-800 hover:border-slate-700 rounded-2xl p-6 sm:p-7 flex flex-col justify-between transition-colors shadow-lg shadow-slate-950/40"
+                  >
+                    <div>
+                      <div className="flex items-center gap-4 mb-4">
+                        <div
+                          className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${service.accentBg} border ${service.accentBorder} ${service.accentText} flex items-center justify-center shrink-0`}
+                        >
+                          <Icon className="w-6 h-6" />
+                        </div>
+                        <h3 className="text-lg sm:text-xl font-bold text-white tracking-tight">
+                          {service.title}
+                        </h3>
+                      </div>
+
+                      <p className="text-sm text-slate-300 leading-relaxed mb-5">
+                        {service.description}
+                      </p>
+
+                      <div className="bg-slate-900/90 border border-slate-800/80 rounded-xl p-4 mb-6">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2.5">
+                          What the learner gets
+                        </p>
+                        <ul className="space-y-2">
+                          {service.benefits.map((benefit) => (
+                            <li key={benefit} className="flex items-start gap-2.5 text-xs sm:text-sm text-slate-300">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                              <span>{benefit}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <Link
+                      to={getStartedDestination}
+                      className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"
+                    >
+                      Get Started <ArrowRight className="w-4 h-4" />
+                    </Link>
+                  </article>
+                );
+              })}
             </div>
           </div>
         </section>

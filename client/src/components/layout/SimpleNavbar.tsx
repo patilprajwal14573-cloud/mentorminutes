@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Sparkles, Menu, X, LogOut, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -10,6 +10,7 @@ interface SimpleNavbarProps {
 export const SimpleNavbar: React.FC<SimpleNavbarProps> = ({ variant = 'light' }) => {
   const { isAuthenticated, user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const isDark = variant === 'dark';
@@ -18,6 +19,14 @@ export const SimpleNavbar: React.FC<SimpleNavbarProps> = ({ variant = 'light' })
     setMobileOpen(false);
     await logout();
     navigate('/login');
+  };
+
+  const handleServicesClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    setMobileOpen(false);
+    if (location.pathname === '/') {
+      e.preventDefault();
+      document.getElementById('services')?.scrollIntoView({ behavior: 'smooth' });
+    }
   };
 
   return (
@@ -49,6 +58,17 @@ export const SimpleNavbar: React.FC<SimpleNavbarProps> = ({ variant = 'light' })
             }`}
           >
             Home
+          </Link>
+          <Link
+            to="/#services"
+            onClick={handleServicesClick}
+            className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+              isDark
+                ? 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            Services
           </Link>
 
           {isAuthenticated ? (
@@ -125,6 +145,15 @@ export const SimpleNavbar: React.FC<SimpleNavbarProps> = ({ variant = 'light' })
             }`}
           >
             Home
+          </Link>
+          <Link
+            to="/#services"
+            onClick={handleServicesClick}
+            className={`block px-3 py-2 rounded-xl text-sm font-medium ${
+              isDark ? 'text-slate-200 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            Services
           </Link>
 
           {isAuthenticated ? (
