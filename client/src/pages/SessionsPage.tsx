@@ -1,23 +1,34 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import axios from 'axios';
 import {
   Calendar,
   Plus,
-  Clock,
   History,
   CheckCircle2,
-  AlertCircle,
   ArrowRight,
   Filter,
-  User,
+  Search,
 } from 'lucide-react';
 import api from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
-import { Session, MentoringRelationship } from '@/types';
+import { Session, MentoringRelationship, ActionItem } from '@/types';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { Modal } from '@/components/common/Modal';
 import { EmptyState } from '@/components/common/EmptyState';
 import { StatusBadge, CarryForwardBadge } from '@/components/common/Badge';
+
+interface CarryPreviewResponse {
+  hasPreviousSession: boolean;
+  lastSession: {
+    _id: string;
+    sessionNumber: number;
+    title: string;
+    scheduledDate: string;
+  } | null;
+  eligibleActions: ActionItem[];
+  nextSessionNumber: number;
+}
 
 export const SessionsPage: React.FC = () => {
   const { user } = useAuth();
@@ -29,6 +40,7 @@ export const SessionsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedRelFilter, setSelectedRelFilter] = useState<string>(initialRelId);
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   // New session modal
   const [showNewModal, setShowNewModal] = useState(false);
@@ -38,21 +50,25 @@ export const SessionsPage: React.FC = () => {
     new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16)
   );
   const [durationMinutes, setDurationMinutes] = useState(60);
+  const [nextSessionDate, setNextSessionDate] = useState('');
   const [agenda, setAgenda] = useState('');
   const [mentorPrivateNotes, setMentorPrivateNotes] = useState('');
 
   // Carry forward preview state
-  const [carryPreview, setCarryPreview] = useState<any>(null);
+  const [carryPreview, setCarryPreview] = useState<CarryPreviewResponse | null>(null);
+  const [selectedCarryIds, setSelectedCarryIds] = useState<string[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [creating, setCreating] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [sessRes, relRes] = await Promise.all([
         api.get('/sessions', {
           params: {
             relationshipId: selectedRelFilter || undefined,
             status: statusFilter !== 'all' ? statusFilter : undefined,
+            q: searchQuery.trim() || undefined,
           },
         }),
         api.get('/relationships'),
@@ -61,20 +77,18 @@ export const SessionsPage: React.FC = () => {
       if (sessRes.data.success) setSessions(sessRes.data.sessions);
       if (relRes.data.success) {
         setRelationships(relRes.data.relationships);
-        if (!relationshipId && relRes.data.relationships.length > 0) {
-          setRelationshipId(relRes.data.relationships[0]._id);
-        }
+        setRelationshipId((prev) => prev || relRes.data.relationships[0]?._id || '');
       }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedRelFilter, statusFilter, searchQuery]);
 
   useEffect(() => {
     fetchData();
-  }, [selectedRelFilter, statusFilter]);
+  }, [fetchData]);
 
   // When mentor selects a relationship in New Session modal, preview carry-forward tasks
   useEffect(() => {
@@ -87,10 +101,10 @@ export const SessionsPage: React.FC = () => {
           params: { relationshipId },
         });
         if (res.data.success) {
-          setCarryPreview(res.data.preview);
-          if (!title) {
-            setTitle(`Session #${res.data.preview.nextSessionNumber}`);
-          }
+          const preview: CarryPreviewResponse = res.data.preview;
+          setCarryPreview(preview);
+          setSelectedCarryIds(preview.eligibleActions.map((a) => a._id));
+          setTitle((prev) => prev || `Session #${preview.nextSessionNumber}`);
         }
       } catch (err) {
         console.error('Carry preview error:', err);
@@ -102,9 +116,16 @@ export const SessionsPage: React.FC = () => {
     fetchPreview();
   }, [relationshipId, showNewModal]);
 
+  const toggleCarryItem = (actionId: string) => {
+    setSelectedCarryIds((prev) =>
+      prev.includes(actionId) ? prev.filter((id) => id !== actionId) : [...prev, actionId]
+    );
+  };
+
   const handleCreateSession = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreateError('');
+    setCreating(true);
 
     try {
       const res = await api.post('/sessions', {
@@ -112,8 +133,10 @@ export const SessionsPage: React.FC = () => {
         title,
         scheduledDate: new Date(scheduledDate).toISOString(),
         durationMinutes,
+        nextSessionDate: nextSessionDate ? new Date(nextSessionDate).toISOString() : undefined,
         agenda,
         mentorPrivateNotes,
+        selectedCarryActionIds: carryPreview?.eligibleActions?.length ? selectedCarryIds : undefined,
       });
 
       if (res.data.success) {
@@ -121,10 +144,17 @@ export const SessionsPage: React.FC = () => {
         setTitle('');
         setAgenda('');
         setMentorPrivateNotes('');
+        setNextSessionDate('');
+        setDurationMinutes(60);
         fetchData();
       }
-    } catch (err: any) {
-      setCreateError(err.response?.data?.message || 'Failed to schedule session');
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err)
+        ? (err.response?.data as { message?: string } | undefined)?.message || 'Failed to schedule session'
+        : 'Failed to schedule session';
+      setCreateError(msg);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -145,6 +175,7 @@ export const SessionsPage: React.FC = () => {
 
         {isMentor && (
           <button
+            type="button"
             onClick={() => setShowNewModal(true)}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
           >
@@ -153,29 +184,38 @@ export const SessionsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Filters Bar */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-slate-400" />
-          <span className="text-xs font-semibold text-slate-700">Filter:</span>
+      {/* Search & Filters Bar */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-2xs flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search sessions by title, agenda, or topics..."
+            className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+          />
         </div>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="text-xs border-slate-200 rounded-xl bg-slate-50 py-1.5 px-3 font-medium text-slate-700"
-        >
-          <option value="all">All Statuses</option>
-          <option value="scheduled">Scheduled</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
+        <div className="flex items-center gap-2">
+          <Filter className="w-4 h-4 text-slate-400" />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="text-xs border border-slate-200 rounded-xl bg-slate-50 py-1.5 px-3 font-medium text-slate-700"
+          >
+            <option value="all">All Statuses</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
 
         {relationships.length > 1 && (
           <select
             value={selectedRelFilter}
             onChange={(e) => setSelectedRelFilter(e.target.value)}
-            className="text-xs border-slate-200 rounded-xl bg-slate-50 py-1.5 px-3 font-medium text-slate-700 max-w-xs truncate"
+            className="text-xs border border-slate-200 rounded-xl bg-slate-50 py-1.5 px-3 font-medium text-slate-700 max-w-xs truncate"
           >
             <option value="">All Mentorships</option>
             {relationships.map((r) => (
@@ -282,7 +322,10 @@ export const SessionsPage: React.FC = () => {
             <label className="block text-xs font-semibold text-slate-700">Mentorship Relationship</label>
             <select
               value={relationshipId}
-              onChange={(e) => setRelationshipId(e.target.value)}
+              onChange={(e) => {
+                setRelationshipId(e.target.value);
+                setTitle('');
+              }}
               className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
             >
               {relationships.map((r) => (
@@ -298,26 +341,36 @@ export const SessionsPage: React.FC = () => {
             <div className="p-3 bg-amber-50 rounded-xl text-xs text-amber-700">
               Checking previous session for unfinished actions...
             </div>
-          ) : carryPreview?.eligibleActions?.length > 0 ? (
+          ) : carryPreview && carryPreview.eligibleActions.length > 0 ? (
             <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2">
-              <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
-                <History className="w-4 h-4 text-amber-600" />
-                Automatic Carry-Forward Ready ({carryPreview.eligibleActions.length} unfinished tasks)
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-amber-900">
+                  <History className="w-4 h-4 text-amber-600" />
+                  Review Carry-Forward Tasks ({selectedCarryIds.length}/{carryPreview.eligibleActions.length} selected)
+                </div>
               </div>
               <p className="text-[11px] text-amber-800">
-                The following tasks from Session #{carryPreview.lastSession?.sessionNumber} will automatically transfer into this new session:
+                Unfinished tasks from Session #{carryPreview.lastSession?.sessionNumber} ready to transfer into this session:
               </p>
-              <div className="space-y-1">
-                {carryPreview.eligibleActions.map((a: any) => (
-                  <div
+              <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                {carryPreview.eligibleActions.map((a) => (
+                  <label
                     key={a._id}
-                    className="flex items-center justify-between text-xs bg-white/80 px-2.5 py-1.5 rounded-lg border border-amber-200/60"
+                    className="flex items-center justify-between gap-2 text-xs bg-white/90 px-2.5 py-1.5 rounded-lg border border-amber-200/60 cursor-pointer"
                   >
-                    <span className="font-medium text-slate-800 truncate">{a.title}</span>
-                    <span className="text-[10px] uppercase font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={selectedCarryIds.includes(a._id)}
+                        onChange={() => toggleCarryItem(a._id)}
+                        className="rounded border-amber-400 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="font-medium text-slate-800 truncate">{a.title}</span>
+                    </span>
+                    <span className="text-[10px] uppercase font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded shrink-0">
                       {a.status}
                     </span>
-                  </div>
+                  </label>
                 ))}
               </div>
             </div>
@@ -348,6 +401,31 @@ export const SessionsPage: React.FC = () => {
                 required
                 value={scheduledDate}
                 onChange={(e) => setScheduledDate(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Duration (minutes)</label>
+              <input
+                type="number"
+                min={15}
+                max={480}
+                step={15}
+                value={durationMinutes}
+                onChange={(e) => setDurationMinutes(Number(e.target.value))}
+                className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Next Session Date (Optional)</label>
+              <input
+                type="date"
+                value={nextSessionDate}
+                onChange={(e) => setNextSessionDate(e.target.value)}
                 className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
               />
             </div>
@@ -391,9 +469,10 @@ export const SessionsPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm"
+              disabled={creating}
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm disabled:opacity-60"
             >
-              Confirm & Schedule Session
+              {creating ? 'Scheduling...' : 'Confirm & Schedule Session'}
             </button>
           </div>
         </form>

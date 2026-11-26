@@ -11,6 +11,7 @@
     "build:server": "cd server && npm run build",
     "build": "npm run build:client",
     "seed": "cd server && npm run seed",
+    "seed:reset": "cd server && npm run seed:reset",
     "test:server": "cd server && npm test",
     "test": "npm run test:server"
   },

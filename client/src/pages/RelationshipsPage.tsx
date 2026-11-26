@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
+import axios from 'axios';
 import {
   Users,
   Plus,
   KeyRound,
-  Calendar,
-  CheckCircle2,
-  Clock,
   ExternalLink,
   Copy,
   Check,
-  Mail,
+  Link2,
+  RefreshCw,
+  BarChart2,
+  Settings2,
 } from 'lucide-react';
 import api from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
@@ -18,12 +19,31 @@ import { MentoringRelationship } from '@/types';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { Modal } from '@/components/common/Modal';
 import { EmptyState } from '@/components/common/EmptyState';
-import { Badge, StatusBadge } from '@/components/common/Badge';
+import { StatusBadge } from '@/components/common/Badge';
+
+interface RelationshipProgress {
+  relationshipId: string;
+  sessions: { total: number; completed: number; scheduled: number };
+  goals: { total: number; completed: number; averageProgress: number };
+  actions: { total: number; completed: number; open: number; overdue: number; completionRate: number };
+}
+
+type FrequencyType = 'Weekly' | 'Bi-weekly' | 'Monthly' | 'As-needed';
+type RelStatusType = 'active' | 'paused' | 'completed';
+
+const getApiError = (err: unknown, fallback: string) => {
+  if (axios.isAxiosError(err)) {
+    return (err.response?.data as { message?: string } | undefined)?.message || fallback;
+  }
+  return fallback;
+};
 
 export const RelationshipsPage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [relationships, setRelationships] = useState<MentoringRelationship[]>([]);
   const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
 
@@ -31,7 +51,7 @@ export const RelationshipsPage: React.FC = () => {
   const [learnerEmail, setLearnerEmail] = useState('');
   const [topic, setTopic] = useState('');
   const [description, setDescription] = useState('');
-  const [meetingFrequency, setMeetingFrequency] = useState<'Weekly' | 'Bi-weekly' | 'Monthly' | 'As-needed'>('Weekly');
+  const [meetingFrequency, setMeetingFrequency] = useState<FrequencyType>('Weekly');
   const [inviteError, setInviteError] = useState('');
 
   // Join form state (for learner)
@@ -39,7 +59,21 @@ export const RelationshipsPage: React.FC = () => {
   const [joinTopic, setJoinTopic] = useState('');
   const [joinError, setJoinError] = useState('');
 
+  // Manage / Progress modal state
+  const [selectedRel, setSelectedRel] = useState<MentoringRelationship | null>(null);
+  const [editStatus, setEditStatus] = useState<RelStatusType>('active');
+  const [editTopic, setEditTopic] = useState('');
+  const [editFrequency, setEditFrequency] = useState<FrequencyType>('Weekly');
+  const [manageError, setManageError] = useState('');
+  const [savingManage, setSavingManage] = useState(false);
+
+  const [progressRel, setProgressRel] = useState<MentoringRelationship | null>(null);
+  const [progressData, setProgressData] = useState<RelationshipProgress | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
+
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   const fetchRelationships = async () => {
     try {
@@ -58,6 +92,17 @@ export const RelationshipsPage: React.FC = () => {
     fetchRelationships();
   }, []);
 
+  // Pre-fill join modal if ?invite=CODE is passed via invitation link
+  useEffect(() => {
+    const inviteParam = searchParams.get('invite');
+    if (inviteParam && user?.role === 'learner') {
+      setInviteCode(inviteParam.toUpperCase());
+      setShowJoinModal(true);
+      searchParams.delete('invite');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams, user?.role]);
+
   const handleCreateRelationship = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteError('');
@@ -75,8 +120,8 @@ export const RelationshipsPage: React.FC = () => {
         setDescription('');
         fetchRelationships();
       }
-    } catch (err: any) {
-      setInviteError(err.response?.data?.message || 'Failed to create relationship');
+    } catch (err: unknown) {
+      setInviteError(getApiError(err, 'Failed to create relationship'));
     }
   };
 
@@ -94,8 +139,54 @@ export const RelationshipsPage: React.FC = () => {
         setJoinTopic('');
         fetchRelationships();
       }
-    } catch (err: any) {
-      setJoinError(err.response?.data?.message || 'Failed to join with code');
+    } catch (err: unknown) {
+      setJoinError(getApiError(err, 'Failed to join with code'));
+    }
+  };
+
+  const handleOpenManage = (rel: MentoringRelationship) => {
+    setSelectedRel(rel);
+    setEditStatus(rel.status);
+    setEditTopic(rel.topic);
+    setEditFrequency(rel.meetingFrequency);
+    setManageError('');
+  };
+
+  const handleUpdateRelationship = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRel) return;
+    setSavingManage(true);
+    setManageError('');
+    try {
+      const res = await api.put(`/relationships/${selectedRel._id}`, {
+        topic: editTopic,
+        status: editStatus,
+        meetingFrequency: editFrequency,
+      });
+      if (res.data.success) {
+        setSelectedRel(null);
+        fetchRelationships();
+      }
+    } catch (err: unknown) {
+      setManageError(getApiError(err, 'Failed to update relationship'));
+    } finally {
+      setSavingManage(false);
+    }
+  };
+
+  const handleViewProgress = async (rel: MentoringRelationship) => {
+    setProgressRel(rel);
+    setProgressData(null);
+    setProgressLoading(true);
+    try {
+      const res = await api.get(`/relationships/${rel._id}/progress`);
+      if (res.data.success) {
+        setProgressData(res.data.progress);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setProgressLoading(false);
     }
   };
 
@@ -107,9 +198,37 @@ export const RelationshipsPage: React.FC = () => {
     }
   };
 
+  const copyInviteLink = () => {
+    if (user?.inviteCode) {
+      const link = `${window.location.origin}/join/${user.inviteCode}`;
+      navigator.clipboard.writeText(link);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+  };
+
+  const handleRegenerateInvite = async () => {
+    if (!window.confirm('Generate a new invite code? Your previous invite code and link will stop working.')) {
+      return;
+    }
+    setRegenerating(true);
+    try {
+      const res = await api.post('/relationships/regenerate-invite');
+      if (res.data.success && res.data.user) {
+        updateUser(res.data.user);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
   if (loading) return <LoadingSpinner text="Loading Mentorships..." />;
 
   const isMentor = user?.role === 'mentor';
+  const filteredRelationships =
+    statusFilter === 'all' ? relationships : relationships.filter((r) => r.status === statusFilter);
 
   return (
     <div className="space-y-6">
@@ -119,25 +238,47 @@ export const RelationshipsPage: React.FC = () => {
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Mentoring Connections</h1>
           <p className="text-sm text-slate-500 mt-0.5">
             {isMentor
-              ? 'Manage your active mentees, invitation codes, and relationship agendas'
+              ? 'Manage your mentees, invitation codes & links, and relationship status'
               : 'Your assigned mentors and learning workspaces'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {isMentor ? (
             <>
               {user?.inviteCode && (
-                <button
-                  onClick={copyInviteCode}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all"
-                  title="Click to copy your mentor invite code"
-                >
-                  {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                  Code: <span className="font-mono font-bold text-indigo-700">{user.inviteCode}</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={copyInviteCode}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all"
+                    title="Click to copy your mentor invite code"
+                  >
+                    {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    Code: <span className="font-mono font-bold text-indigo-700">{user.inviteCode}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={copyInviteLink}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-xl transition-all"
+                    title="Copy direct invitation link"
+                  >
+                    {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Link2 className="w-3.5 h-3.5" />}
+                    {copiedLink ? 'Link Copied' : 'Copy Invite Link'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRegenerateInvite}
+                    disabled={regenerating}
+                    className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all"
+                    title="Regenerate invite code"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${regenerating ? 'animate-spin' : ''}`} />
+                  </button>
+                </>
               )}
               <button
+                type="button"
                 onClick={() => setShowInviteModal(true)}
                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
               >
@@ -146,6 +287,7 @@ export const RelationshipsPage: React.FC = () => {
             </>
           ) : (
             <button
+              type="button"
               onClick={() => setShowJoinModal(true)}
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
             >
@@ -155,22 +297,46 @@ export const RelationshipsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Status Filter */}
+      {relationships.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {(['all', 'active', 'paused', 'completed'] as const).map((status) => (
+            <button
+              key={status}
+              type="button"
+              onClick={() => setStatusFilter(status)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all ${
+                statusFilter === status
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              {status}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Relationships Grid */}
-      {relationships.length === 0 ? (
+      {filteredRelationships.length === 0 ? (
         <EmptyState
           icon={Users}
-          title="No mentoring connections yet"
+          title={relationships.length === 0 ? 'No mentoring connections yet' : 'No relationships match this filter'}
           description={
             isMentor
-              ? 'Invite a learner by email or share your mentor invite code to begin mentoring.'
-              : 'Join a mentor using their unique invitation code (e.g. MM-ARCH99).'
+              ? 'Invite a learner by email or share your mentor invite code/link to begin mentoring.'
+              : 'Join a mentor using their unique invitation code or link.'
           }
-          actionText={isMentor ? 'Add Learner' : 'Enter Invite Code'}
-          onAction={() => (isMentor ? setShowInviteModal(true) : setShowJoinModal(true))}
+          actionText={relationships.length === 0 ? (isMentor ? 'Add Learner' : 'Enter Invite Code') : undefined}
+          onAction={
+            relationships.length === 0
+              ? () => (isMentor ? setShowInviteModal(true) : setShowJoinModal(true))
+              : undefined
+          }
         />
       ) : (
         <div className="grid md:grid-cols-2 gap-6">
-          {relationships.map((rel) => {
+          {filteredRelationships.map((rel) => {
             const partner = isMentor ? rel.learner : rel.mentor;
             return (
               <div
@@ -213,16 +379,34 @@ export const RelationshipsPage: React.FC = () => {
                   </p>
                 </div>
 
-                <div className="mt-auto pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                <div className="mt-auto pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <span className="text-slate-400">
                     Started {new Date(rel.startDate).toLocaleDateString()}
                   </span>
-                  <Link
-                    to={`/sessions?relationshipId=${rel._id}`}
-                    className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-800"
-                  >
-                    View Sessions <ExternalLink className="w-3.5 h-3.5" />
-                  </Link>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleViewProgress(rel)}
+                      className="inline-flex items-center gap-1 font-semibold text-slate-600 hover:text-indigo-700"
+                    >
+                      <BarChart2 className="w-3.5 h-3.5" /> Progress
+                    </button>
+                    {isMentor && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenManage(rel)}
+                        className="inline-flex items-center gap-1 font-semibold text-slate-600 hover:text-indigo-700"
+                      >
+                        <Settings2 className="w-3.5 h-3.5" /> Manage
+                      </button>
+                    )}
+                    <Link
+                      to={`/sessions?relationshipId=${rel._id}`}
+                      className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-800"
+                    >
+                      Sessions <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
                 </div>
               </div>
             );
@@ -272,7 +456,7 @@ export const RelationshipsPage: React.FC = () => {
             <label className="block text-xs font-semibold text-slate-700">Meeting Frequency</label>
             <select
               value={meetingFrequency}
-              onChange={(e) => setMeetingFrequency(e.target.value as any)}
+              onChange={(e) => setMeetingFrequency(e.target.value as FrequencyType)}
               className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
             >
               <option value="Weekly">Weekly</option>
@@ -364,6 +548,133 @@ export const RelationshipsPage: React.FC = () => {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Manage Relationship Modal (Mentor) */}
+      <Modal
+        isOpen={!!selectedRel}
+        onClose={() => setSelectedRel(null)}
+        title="Manage Mentorship"
+        subtitle={selectedRel ? `Learner: ${selectedRel.learner.name}` : ''}
+      >
+        <form onSubmit={handleUpdateRelationship} className="space-y-4">
+          {manageError && (
+            <p className="text-xs text-rose-600 bg-rose-50 p-2.5 rounded-lg border border-rose-200">
+              {manageError}
+            </p>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Mentorship Topic</label>
+            <input
+              type="text"
+              required
+              value={editTopic}
+              onChange={(e) => setEditTopic(e.target.value)}
+              className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Status</label>
+              <select
+                value={editStatus}
+                onChange={(e) => setEditStatus(e.target.value as RelStatusType)}
+                className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Frequency</label>
+              <select
+                value={editFrequency}
+                onChange={(e) => setEditFrequency(e.target.value as FrequencyType)}
+                className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="Weekly">Weekly</option>
+                <option value="Bi-weekly">Bi-weekly</option>
+                <option value="Monthly">Monthly</option>
+                <option value="As-needed">As-needed</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setSelectedRel(null)}
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={savingManage}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl disabled:opacity-60"
+            >
+              {savingManage ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Progress Summary Modal */}
+      <Modal
+        isOpen={!!progressRel}
+        onClose={() => setProgressRel(null)}
+        title="Mentorship Progress Overview"
+        subtitle={
+          progressRel
+            ? `${isMentor ? progressRel.learner.name : progressRel.mentor.name} — ${progressRel.topic}`
+            : ''
+        }
+      >
+        {progressLoading ? (
+          <LoadingSpinner text="Calculating progress..." />
+        ) : progressData ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <p className="text-[11px] text-slate-500">Sessions</p>
+                <p className="text-xl font-black text-slate-900">{progressData.sessions.total}</p>
+                <p className="text-[11px] text-emerald-600">{progressData.sessions.completed} completed</p>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <p className="text-[11px] text-slate-500">Goal Progress</p>
+                <p className="text-xl font-black text-indigo-600">{progressData.goals.averageProgress}%</p>
+                <p className="text-[11px] text-slate-500">
+                  {progressData.goals.completed}/{progressData.goals.total} goals done
+                </p>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <p className="text-[11px] text-slate-500">Action Rate</p>
+                <p className="text-xl font-black text-emerald-600">{progressData.actions.completionRate}%</p>
+                <p className="text-[11px] text-amber-600">{progressData.actions.overdue} overdue</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Link
+                to={`/goals?relationshipId=${progressData.relationshipId}`}
+                className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl"
+              >
+                View Goals
+              </Link>
+              <Link
+                to={`/sessions?relationshipId=${progressData.relationshipId}`}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl"
+              >
+                Open Sessions
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">Unable to load progress details.</p>
+        )}
       </Modal>
     </div>
   );

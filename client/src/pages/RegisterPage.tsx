@@ -1,21 +1,49 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Sparkles, ArrowRight, Lock, Mail, User, Briefcase, AlertCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Sparkles, ArrowRight, Lock, Mail, User, AlertCircle, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { UserRole } from '../types';
+import api from '../services/api';
+
+interface InvitePreview {
+  name: string;
+  title?: string;
+  companyOrSchool?: string;
+  inviteCode: string;
+}
 
 export const RegisterPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const initialInvite = (searchParams.get('invite') || '').trim().toUpperCase();
+
   const [role, setRole] = useState<UserRole>('learner');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [title, setTitle] = useState('');
   const [companyOrSchool, setCompanyOrSchool] = useState('');
+  const [inviteCode, setInviteCode] = useState(initialInvite);
+  const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const { register } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!initialInvite) return;
+    setRole('learner');
+    api
+      .get(`/users/invite-preview/${encodeURIComponent(initialInvite)}`)
+      .then((res) => {
+        if (res.data.success) {
+          setInvitePreview(res.data.mentor);
+        }
+      })
+      .catch(() => {
+        setInvitePreview(null);
+      });
+  }, [initialInvite]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,11 +63,28 @@ export const RegisterPage: React.FC = () => {
       title,
       companyOrSchool,
     });
-    setLoading(false);
 
     if (res.success) {
+      if (role === 'learner' && inviteCode.trim()) {
+        try {
+          await api.post('/relationships/join-by-code', {
+            inviteCode: inviteCode.trim().toUpperCase(),
+            topic: 'Mentorship Workspace',
+          });
+          setLoading(false);
+          navigate('/relationships');
+          return;
+        } catch {
+          // Account created successfully; fall back to relationships page with invite code prefilled
+          setLoading(false);
+          navigate(`/relationships?invite=${encodeURIComponent(inviteCode.trim().toUpperCase())}`);
+          return;
+        }
+      }
+      setLoading(false);
       navigate('/dashboard');
     } else {
+      setLoading(false);
       setError(res.message || 'Registration failed');
     }
   };
@@ -64,6 +109,18 @@ export const RegisterPage: React.FC = () => {
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
         <div className="bg-white py-8 px-4 shadow-xl shadow-slate-200/50 sm:rounded-2xl sm:px-10 border border-slate-200/80">
+          {invitePreview && (
+            <div className="mb-4 p-3 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-900 text-xs flex items-start gap-2.5">
+              <KeyRound className="w-4 h-4 shrink-0 text-indigo-600 mt-0.5" />
+              <div>
+                <p className="font-bold">Invited by {invitePreview.name}</p>
+                <p className="text-indigo-700 mt-0.5">
+                  {invitePreview.title || 'Mentor'} — Register as a learner to connect automatically ({invitePreview.inviteCode}).
+                </p>
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -177,6 +234,21 @@ export const RegisterPage: React.FC = () => {
                 />
               </div>
             </div>
+
+            {role === 'learner' && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700">
+                  Mentor Invite Code <span className="font-normal text-slate-400">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. MM-ARCH99"
+                  className="mt-1 block w-full px-3 py-2 text-sm font-mono uppercase border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            )}
 
             <button
               type="submit"

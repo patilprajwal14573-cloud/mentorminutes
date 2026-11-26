@@ -1,6 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import axios from 'axios';
 import api from '../services/api';
-import { User } from '../types';
+import { User, UserRole } from '../types';
+
+export interface RegisterData {
+  name: string;
+  email: string;
+  password: string;
+  role: UserRole;
+  title?: string;
+  companyOrSchool?: string;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -8,18 +18,27 @@ interface AuthContextType {
   isAuthenticated: boolean;
   loading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
-  register: (userData: any) => Promise<{ success: boolean; message?: string }>;
+  register: (userData: RegisterData) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   updateUser: (user: User) => void;
 }
+
+const getErrorMessage = (err: unknown, fallback: string): string => {
+  if (axios.isAxiosError(err)) {
+    const data = err.response?.data as { message?: string } | undefined;
+    return data?.message || err.message || fallback;
+  }
+  if (err instanceof Error) return err.message;
+  return fallback;
+};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('mentorminutes_user');
-    return saved ? JSON.parse(saved) : null;
+    return saved ? (JSON.parse(saved) as User) : null;
   });
   const [token, setToken] = useState<string | null>(() => {
     return localStorage.getItem('mentorminutes_token');
@@ -37,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(res.data.user);
             localStorage.setItem('mentorminutes_user', JSON.stringify(res.data.user));
           }
-        } catch (err) {
+        } catch {
           console.warn('Auth token expired or invalid');
           logout();
         }
@@ -60,13 +79,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: true };
       }
       return { success: false, message: res.data.message || 'Login failed' };
-    } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Login error occurred';
-      return { success: false, message: msg };
+    } catch (err: unknown) {
+      return { success: false, message: getErrorMessage(err, 'Login error occurred') };
     }
   };
 
-  const register = async (userData: any) => {
+  const register = async (userData: RegisterData) => {
     try {
       const res = await api.post('/auth/register', userData);
       if (res.data.success) {
@@ -78,9 +96,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: true };
       }
       return { success: false, message: res.data.message || 'Registration failed' };
-    } catch (err: any) {
-      const msg = err.response?.data?.message || err.message || 'Registration error occurred';
-      return { success: false, message: msg };
+    } catch (err: unknown) {
+      return { success: false, message: getErrorMessage(err, 'Registration error occurred') };
     }
   };
 

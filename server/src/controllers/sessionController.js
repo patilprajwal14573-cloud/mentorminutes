@@ -19,10 +19,23 @@ const sanitizeSession = (session, isLearner) => {
 // @route   GET /api/sessions
 exports.getSessions = async (req, res, next) => {
   try {
-    const { relationshipId, status } = req.query;
+    const { relationshipId, status, q } = req.query;
     const filter = {};
 
     if (relationshipId) {
+      const rel = await MentoringRelationship.findById(relationshipId);
+      if (!rel) {
+        return res.status(404).json({ success: false, message: 'Relationship not found' });
+      }
+      const isParticipant =
+        rel.mentor.toString() === req.user._id.toString() ||
+        rel.learner.toString() === req.user._id.toString();
+      if (!isParticipant) {
+        return res.status(403).json({
+          success: false,
+          message: 'Not authorized to view sessions for this relationship',
+        });
+      }
       filter.relationship = relationshipId;
     } else {
       // Find all relationships user is part of
@@ -36,15 +49,34 @@ exports.getSessions = async (req, res, next) => {
       filter.status = status;
     }
 
-    const sessions = await Session.find(filter)
-      .populate({
-        path: 'relationship',
-        populate: [
-          { path: 'mentor', select: 'name email avatar title' },
-          { path: 'learner', select: 'name email avatar title' },
-        ],
-      })
-      .sort({ scheduledDate: -1 });
+    if (q && q.trim()) {
+      const regex = new RegExp(q.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [
+        { title: regex },
+        { agenda: regex },
+        { topicsDiscussed: regex },
+        { sharedSummary: regex },
+      ];
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+
+    const [sessions, total] = await Promise.all([
+      Session.find(filter)
+        .populate({
+          path: 'relationship',
+          populate: [
+            { path: 'mentor', select: 'name email avatar title' },
+            { path: 'learner', select: 'name email avatar title' },
+          ],
+        })
+        .sort({ scheduledDate: -1 })
+        .skip(skip)
+        .limit(limit),
+      Session.countDocuments(filter),
+    ]);
 
     const isLearner = req.user.role === 'learner';
     const sanitized = sessions.map((s) => sanitizeSession(s, isLearner));
@@ -52,6 +84,12 @@ exports.getSessions = async (req, res, next) => {
     res.status(200).json({
       success: true,
       count: sanitized.length,
+      total,
+      pagination: {
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
       sessions: sanitized,
     });
   } catch (err) {
@@ -73,6 +111,16 @@ exports.getPreviewCarryForward = async (req, res, next) => {
     const relationship = await MentoringRelationship.findById(relationshipId);
     if (!relationship) {
       return res.status(404).json({ success: false, message: 'Relationship not found' });
+    }
+
+    const isParticipant =
+      relationship.mentor.toString() === req.user._id.toString() ||
+      relationship.learner.toString() === req.user._id.toString();
+    if (!isParticipant) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to preview carry-forward for this relationship',
+      });
     }
 
     const preview = await previewCarryForward(relationshipId);
@@ -154,10 +202,10 @@ exports.createSession = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Relationship not found' });
     }
 
-    if (req.user.role !== 'mentor' && relationship.mentor.toString() !== req.user._id.toString()) {
+    if (relationship.mentor.toString() !== req.user._id.toString()) {
       return res.status(403).json({
         success: false,
-        message: 'Only the mentor can create and schedule new sessions',
+        message: 'Only the mentor of this relationship can create and schedule new sessions',
       });
     }
 

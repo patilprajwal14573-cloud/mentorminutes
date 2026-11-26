@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
+import axios from 'axios';
 import {
   User,
   Lock,
   Bell,
-  Shield,
   Save,
   Check,
   Copy,
@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/services/api';
+
+type ThemeOption = 'light' | 'dark' | 'system';
 
 export const SettingsPage: React.FC = () => {
   const { user, updateUser } = useAuth();
@@ -22,6 +24,17 @@ export const SettingsPage: React.FC = () => {
   const [companyOrSchool, setCompanyOrSchool] = useState(user?.companyOrSchool || '');
   const [bio, setBio] = useState(user?.bio || '');
   const [avatar, setAvatar] = useState(user?.avatar || '');
+
+  // Preferences form
+  const [emailNotifications, setEmailNotifications] = useState(
+    user?.settings?.emailNotifications ?? true
+  );
+  const [sessionReminders, setSessionReminders] = useState(
+    user?.settings?.sessionReminders ?? true
+  );
+  const [theme, setTheme] = useState<ThemeOption>(user?.settings?.theme ?? 'light');
+  const [prefsSaving, setPrefsSaving] = useState(false);
+  const [prefsSuccess, setPrefsSuccess] = useState(false);
 
   // Password form
   const [currentPassword, setCurrentPassword] = useState('');
@@ -59,6 +72,30 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  const handleUpdatePreferences = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPrefsSaving(true);
+    setPrefsSuccess(false);
+    try {
+      const res = await api.put('/auth/profile', {
+        settings: {
+          emailNotifications,
+          sessionReminders,
+          theme,
+        },
+      });
+      if (res.data.success) {
+        updateUser(res.data.user);
+        setPrefsSuccess(true);
+        setTimeout(() => setPrefsSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPrefsSaving(false);
+    }
+  };
+
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError('');
@@ -86,8 +123,11 @@ export const SettingsPage: React.FC = () => {
         setConfirmPassword('');
         setTimeout(() => setPasswordSuccess(false), 3000);
       }
-    } catch (err: any) {
-      setPasswordError(err.response?.data?.message || 'Password update failed');
+    } catch (err: unknown) {
+      const msg = axios.isAxiosError(err)
+        ? (err.response?.data as { message?: string } | undefined)?.message || 'Password update failed'
+        : 'Password update failed';
+      setPasswordError(msg);
     } finally {
       setPasswordSaving(false);
     }
@@ -125,11 +165,12 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-sm font-black text-indigo-900 bg-white px-3 py-1.5 rounded-xl border border-indigo-200">
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="font-mono text-sm font-black text-indigo-900 bg-white px-3 py-1.5 rounded-xl border border-indigo-200 whitespace-nowrap">
               {user.inviteCode}
             </span>
             <button
+              type="button"
               onClick={copyCode}
               className="p-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl transition-colors shadow-2xs"
               title="Copy code"
@@ -164,8 +205,8 @@ export const SettingsPage: React.FC = () => {
               <input
                 type="text"
                 disabled
-                value={user?.role?.toUpperCase()}
-                className="mt-1 block w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl text-slate-500 cursor-not-allowed uppercase font-bold text-xs"
+                value={user?.role?.toUpperCase() || ''}
+                className="mt-1 block w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-500 cursor-not-allowed uppercase font-bold text-xs"
               />
             </div>
           </div>
@@ -228,6 +269,69 @@ export const SettingsPage: React.FC = () => {
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5"
             >
               <Save className="w-4 h-4" /> {profileSaving ? 'Saving...' : 'Save Profile'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Notification & Theme Preferences */}
+      <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/80 shadow-2xs">
+        <h2 className="text-base font-bold text-slate-900 mb-4 flex items-center gap-2">
+          <Bell className="w-4 h-4 text-indigo-600" /> Notification & Theme Preferences
+        </h2>
+
+        <form onSubmit={handleUpdatePreferences} className="space-y-4">
+          <label className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer">
+            <div>
+              <p className="text-xs font-bold text-slate-800">In-App Activity Alerts</p>
+              <p className="text-[11px] text-slate-500">Receive alerts when sessions, goals, or actions are updated</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={emailNotifications}
+              onChange={(e) => setEmailNotifications(e.target.checked)}
+              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+          </label>
+
+          <label className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 cursor-pointer">
+            <div>
+              <p className="text-xs font-bold text-slate-800">Session & Deadline Reminders</p>
+              <p className="text-[11px] text-slate-500">Highlight overdue action items and approaching goal deadlines</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={sessionReminders}
+              onChange={(e) => setSessionReminders(e.target.checked)}
+              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+            />
+          </label>
+
+          <div className="max-w-xs">
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Theme Preference</label>
+            <select
+              value={theme}
+              onChange={(e) => setTheme(e.target.value as ThemeOption)}
+              className="block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="light">Light (Default)</option>
+              <option value="dark">Dark</option>
+              <option value="system">System</option>
+            </select>
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            {prefsSuccess ? (
+              <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
+                <Check className="w-4 h-4" /> Preferences saved!
+              </span>
+            ) : <span />}
+            <button
+              type="submit"
+              disabled={prefsSaving}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5"
+            >
+              <Save className="w-4 h-4" /> {prefsSaving ? 'Saving...' : 'Save Preferences'}
             </button>
           </div>
         </form>

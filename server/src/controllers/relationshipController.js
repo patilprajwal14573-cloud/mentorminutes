@@ -1,4 +1,7 @@
 const MentoringRelationship = require('../models/MentoringRelationship');
+const Session = require('../models/Session');
+const Goal = require('../models/Goal');
+const ActionItem = require('../models/ActionItem');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 
@@ -14,14 +17,29 @@ exports.getRelationships = async (req, res, next) => {
       filter.status = req.query.status;
     }
 
-    const relationships = await MentoringRelationship.find(filter)
-      .populate('mentor', 'name email avatar title companyOrSchool expertise')
-      .populate('learner', 'name email avatar title companyOrSchool interests')
-      .sort({ updatedAt: -1 });
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const skip = (page - 1) * limit;
+
+    const [relationships, total] = await Promise.all([
+      MentoringRelationship.find(filter)
+        .populate('mentor', 'name email avatar title companyOrSchool expertise')
+        .populate('learner', 'name email avatar title companyOrSchool interests')
+        .sort({ updatedAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      MentoringRelationship.countDocuments(filter),
+    ]);
 
     res.status(200).json({
       success: true,
       count: relationships.length,
+      total,
+      pagination: {
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
       relationships,
     });
   } catch (err) {
@@ -223,17 +241,26 @@ exports.updateRelationship = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Relationship not found' });
     }
 
-    // Only mentor or learner involved
     const isMentor = relationship.mentor.toString() === req.user._id.toString();
     const isLearner = relationship.learner.toString() === req.user._id.toString();
     if (!isMentor && !isLearner) {
       return res.status(403).json({ success: false, message: 'Not authorized' });
     }
 
+    if (!isMentor) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the mentor can modify relationship settings or status',
+      });
+    }
+
     const { topic, description, status, meetingFrequency, notes } = req.body;
     if (topic !== undefined) relationship.topic = topic;
     if (description !== undefined) relationship.description = description;
-    if (status !== undefined) relationship.status = status;
+    if (status !== undefined) {
+      relationship.status = status;
+      relationship.endDate = status === 'completed' ? new Date() : undefined;
+    }
     if (meetingFrequency !== undefined) relationship.meetingFrequency = meetingFrequency;
     if (notes !== undefined) relationship.notes = notes;
 
@@ -246,6 +273,106 @@ exports.updateRelationship = async (req, res, next) => {
     res.status(200).json({
       success: true,
       relationship: updated,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @route   POST /api/relationships/regenerate-invite
+exports.regenerateInviteCode = async (req, res, next) => {
+  try {
+    if (req.user.role !== 'mentor') {
+      return res.status(403).json({
+        success: false,
+        message: 'Only mentors can regenerate an invite code',
+      });
+    }
+
+    let code;
+    let isUnique = false;
+    while (!isUnique) {
+      code = User.generateInviteCode();
+      const existing = await User.findOne({ inviteCode: code });
+      if (!existing) isUnique = true;
+    }
+
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { inviteCode: code },
+      { new: true }
+    );
+
+    res.status(200).json({
+      success: true,
+      inviteCode: user.inviteCode,
+      user,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @route   GET /api/relationships/:id/progress
+exports.getRelationshipProgress = async (req, res, next) => {
+  try {
+    const relationship = await MentoringRelationship.findById(req.params.id)
+      .populate('mentor', 'name email avatar title')
+      .populate('learner', 'name email avatar title companyOrSchool');
+
+    if (!relationship) {
+      return res.status(404).json({ success: false, message: 'Relationship not found' });
+    }
+
+    const isMentor = relationship.mentor._id.toString() === req.user._id.toString();
+    const isLearner = relationship.learner._id.toString() === req.user._id.toString();
+    if (!isMentor && !isLearner) {
+      return res.status(403).json({ success: false, message: 'Not authorized' });
+    }
+
+    const now = new Date();
+    const [sessions, goals, actions] = await Promise.all([
+      Session.find({ relationship: relationship._id }).select('status scheduledDate sessionNumber'),
+      Goal.find({ relationship: relationship._id }).select('status progress targetDate'),
+      ActionItem.find({ relationship: relationship._id }).select('status dueDate carryCount'),
+    ]);
+
+    const completedSessions = sessions.filter((s) => s.status === 'completed').length;
+    const scheduledSessions = sessions.filter((s) => s.status === 'scheduled').length;
+    const completedGoals = goals.filter((g) => g.status === 'completed').length;
+    const avgGoalProgress =
+      goals.length > 0
+        ? Math.round(goals.reduce((acc, g) => acc + (g.progress || 0), 0) / goals.length)
+        : 0;
+    const completedActions = actions.filter((a) => a.status === 'completed').length;
+    const openActions = actions.filter((a) => ['pending', 'in-progress'].includes(a.status)).length;
+    const overdueActions = actions.filter(
+      (a) => ['pending', 'in-progress'].includes(a.status) && a.dueDate && new Date(a.dueDate) < now
+    ).length;
+
+    res.status(200).json({
+      success: true,
+      progress: {
+        relationshipId: relationship._id,
+        sessions: {
+          total: sessions.length,
+          completed: completedSessions,
+          scheduled: scheduledSessions,
+        },
+        goals: {
+          total: goals.length,
+          completed: completedGoals,
+          averageProgress: avgGoalProgress,
+        },
+        actions: {
+          total: actions.length,
+          completed: completedActions,
+          open: openActions,
+          overdue: overdueActions,
+          completionRate:
+            actions.length > 0 ? Math.round((completedActions / actions.length) * 100) : 0,
+        },
+      },
     });
   } catch (err) {
     next(err);

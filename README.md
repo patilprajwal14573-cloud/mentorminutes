@@ -71,7 +71,7 @@ npm install
 cp .env.example .env
 ```
 
-### 2. Seed Demonstration Data
+### 2. Seed & Safely Reset Demonstration Data
 
 The project includes realistic demonstration data (2 Mentors, 4 Learners, 4 Mentoring Relationships, multi-session carry-forwards, and goals):
 
@@ -80,7 +80,14 @@ cd server
 npm run seed
 ```
 
-*(Note: The server also auto-seeds demonstration data on first launch if the database is empty!)*
+To safely remove **only** the dedicated demonstration dataset without affecting any other accounts or production records:
+
+```bash
+cd server
+npm run seed:reset
+```
+
+*(Auto-seeding on startup is disabled by default; set `AUTO_SEED=true` in `server/.env` only for local development if desired.)*
 
 ### 3. Run the Application
 

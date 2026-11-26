@@ -15,6 +15,11 @@ async function connectDB() {
   } catch (err) {
     console.warn(`[Database] Standard MongoDB connection failed: ${err.message}`);
 
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[Database] Production mode requires a valid MONGODB_URI connection.');
+      throw err;
+    }
+
     // If local dev/test and MongoDB is not running, fallback to mongodb-memory-server
     try {
       console.log('[Database] Starting in-memory embedded MongoDB fallback for seamless local development...');

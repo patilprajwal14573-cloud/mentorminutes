@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, History, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowRight, History, CheckCircle2 } from 'lucide-react';
 import { ActionItem } from '../../types';
 import { Modal } from '../common/Modal';
 import { PriorityBadge, StatusBadge } from '../common/Badge';
@@ -26,11 +26,11 @@ export const CarryForwardBanner: React.FC<CarryForwardBannerProps> = ({
               <History className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h4 className="text-sm font-bold text-amber-900">
                   Automatic Action Carry-Forward
                 </h4>
-                <span className="bg-amber-200/80 text-amber-800 text-xs font-semibold px-2 py-0.5 rounded-full">
+                <span className="bg-amber-200/80 text-amber-800 text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap shrink-0">
                   {carriedActions.length} {carriedActions.length === 1 ? 'task' : 'tasks'}
                 </span>
               </div>

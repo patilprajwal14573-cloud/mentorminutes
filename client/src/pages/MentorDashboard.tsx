@@ -7,30 +7,45 @@ import {
   Target,
   AlertTriangle,
   History,
-  TrendingUp,
   ArrowRight,
-  Plus,
-  Clock,
+  Award,
 } from 'lucide-react';
 import {
   PieChart,
   Pie,
   Cell,
   ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
   Tooltip,
 } from 'recharts';
 import api from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
+import { Session, Goal, ActionItem } from '@/types';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
-import { PriorityBadge, StatusBadge } from '@/components/common/Badge';
+
+interface MentorDashboardStats {
+  totalLearners: number;
+  totalSessions: number;
+  completedSessions: number;
+  upcomingSessions: Session[];
+  actions: {
+    pending: number;
+    inProgress: number;
+    completed: number;
+    overdue: number;
+    carriedForward: number;
+  };
+  goals: {
+    active: number;
+    completed: number;
+    averageProgress: number;
+    recentlyCompleted: Goal[];
+  };
+  recentCompletedActions: ActionItem[];
+}
 
 export const MentorDashboard: React.FC = () => {
   const { user } = useAuth();
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<MentorDashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -55,11 +70,6 @@ export const MentorDashboard: React.FC = () => {
     { name: 'Completed', value: stats?.actions?.completed || 0, color: '#10B981' },
     { name: 'In Progress', value: stats?.actions?.inProgress || 0, color: '#6366F1' },
     { name: 'Pending', value: stats?.actions?.pending || 0, color: '#F59E0B' },
-  ];
-
-  const goalData = [
-    { name: 'Active', count: stats?.goals?.active || 0 },
-    { name: 'Completed', count: stats?.goals?.completed || 0 },
   ];
 
   return (
@@ -135,9 +145,9 @@ export const MentorDashboard: React.FC = () => {
           <p className="text-2xl sm:text-3xl font-black text-slate-900 mt-3">
             {(stats?.actions?.pending || 0) + (stats?.actions?.inProgress || 0)}
           </p>
-          {stats?.actions?.overdue > 0 ? (
+          {stats?.actions?.overdue && stats.actions.overdue > 0 ? (
             <p className="text-[11px] text-rose-600 font-semibold mt-1 flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" /> {stats?.actions?.overdue} overdue
+              <AlertTriangle className="w-3 h-3" /> {stats.actions.overdue} overdue
             </p>
           ) : (
             <p className="text-[11px] text-emerald-600 font-medium mt-1">All on schedule</p>
@@ -146,21 +156,22 @@ export const MentorDashboard: React.FC = () => {
 
         <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-2xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-slate-500">Actions Carried Forward</span>
+            <span className="text-xs font-semibold text-slate-500">Active Goals / Carried</span>
             <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
               <History className="w-4 h-4" />
             </div>
           </div>
           <p className="text-2xl sm:text-3xl font-black text-slate-900 mt-3">
-            {stats?.actions?.carriedForward || 0}
+            {stats?.goals?.active || 0}
           </p>
-          <p className="text-[11px] text-purple-600 font-medium mt-1">Automated continuity</p>
+          <p className="text-[11px] text-purple-600 font-medium mt-1">
+            {stats?.actions?.carriedForward || 0} tasks carried forward
+          </p>
         </div>
       </div>
 
-      {/* Two Column Section: Upcoming Sessions & Action Completion Chart */}
+      {/* Upcoming Sessions & Action Chart */}
       <div className="grid lg:grid-cols-3 gap-6">
-        {/* Upcoming Sessions List */}
         <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -176,10 +187,10 @@ export const MentorDashboard: React.FC = () => {
           </div>
 
           <div className="divide-y divide-slate-100">
-            {stats?.upcomingSessions?.length === 0 ? (
+            {!stats?.upcomingSessions || stats.upcomingSessions.length === 0 ? (
               <p className="text-xs text-slate-400 py-6 text-center">No upcoming sessions scheduled.</p>
             ) : (
-              stats?.upcomingSessions?.map((session: any) => (
+              stats.upcomingSessions.map((session) => (
                 <div
                   key={session._id}
                   className="py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors rounded-xl px-2"
@@ -253,6 +264,57 @@ export const MentorDashboard: React.FC = () => {
               <p className="text-slate-400 text-[10px]">Pending</p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Recently Completed Goals & Recent Activity */}
+      <div className="grid md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs min-w-0">
+          <div className="flex items-center justify-between mb-4 gap-2">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <Award className="w-4 h-4 text-emerald-600 shrink-0" /> Recently Completed Goals
+            </h3>
+            <Link to="/goals" className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 shrink-0">
+              All Goals
+            </Link>
+          </div>
+          {!stats?.goals?.recentlyCompleted || stats.goals.recentlyCompleted.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">No completed goals yet.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {stats.goals.recentlyCompleted.map((g) => (
+                <div key={g._id} className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 text-xs flex items-center justify-between gap-2 min-w-0">
+                  <span className="font-semibold text-slate-800 truncate min-w-0 flex-1">{g.title}</span>
+                  <span className="text-[11px] text-emerald-700 font-bold shrink-0">100%</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-2xs min-w-0">
+          <div className="flex items-center justify-between mb-4 gap-2">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <CheckSquare className="w-4 h-4 text-indigo-600 shrink-0" /> Recent Mentoring Activity
+            </h3>
+            <Link to="/timeline" className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 shrink-0">
+              Timeline
+            </Link>
+          </div>
+          {!stats?.recentCompletedActions || stats.recentCompletedActions.length === 0 ? (
+            <p className="text-xs text-slate-400 py-4 text-center">No recent completed tasks.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {stats.recentCompletedActions.map((a) => (
+                <div key={a._id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs flex items-center justify-between gap-2 min-w-0">
+                  <span className="font-medium text-slate-800 truncate min-w-0 flex-1">{a.title}</span>
+                  <span className="text-[11px] text-slate-400 shrink-0">
+                    {a.completedAt ? new Date(a.completedAt).toLocaleDateString() : 'Done'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

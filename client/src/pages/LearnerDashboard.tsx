@@ -6,18 +6,40 @@ import {
   Target,
   AlertTriangle,
   History,
-  TrendingUp,
   ArrowRight,
   MessageSquare,
-  Award,
 } from 'lucide-react';
 import api from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
+import { MentoringRelationship, Session } from '@/types';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
+
+interface LearnerDashboardStats {
+  relationships: MentoringRelationship[];
+  completedSessions: number;
+  upcomingSessions: Session[];
+  actions: {
+    pending: number;
+    inProgress: number;
+    completed: number;
+    overdue: number;
+    completionRate: number;
+  };
+  goals: {
+    active: number;
+    averageProgress: number;
+  };
+  recentFeedbackSessions: Array<{
+    _id: string;
+    title: string;
+    scheduledDate: string;
+    learnerFeedback: string;
+  }>;
+}
 
 export const LearnerDashboard: React.FC = () => {
   const { user } = useAuth();
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<LearnerDashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -134,9 +156,9 @@ export const LearnerDashboard: React.FC = () => {
           <p className="text-2xl sm:text-3xl font-black text-slate-900 mt-3">
             {(stats?.actions?.pending || 0) + (stats?.actions?.inProgress || 0)}
           </p>
-          {stats?.actions?.overdue > 0 ? (
+          {stats?.actions?.overdue && stats.actions.overdue > 0 ? (
             <p className="text-[11px] text-rose-600 font-semibold mt-1 flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" /> {stats?.actions?.overdue} overdue
+              <AlertTriangle className="w-3 h-3" /> {stats.actions.overdue} overdue
             </p>
           ) : (
             <p className="text-[11px] text-emerald-600 font-medium mt-1">All on track</p>
@@ -150,7 +172,7 @@ export const LearnerDashboard: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-base font-bold text-slate-900">Next Upcoming Sessions</h3>
-              <p className="text-xs text-slate-500">Don't forget to prepare topics and review action items</p>
+              <p className="text-xs text-slate-500">Prepare topics and review action items</p>
             </div>
             <Link
               to="/sessions"
@@ -161,10 +183,10 @@ export const LearnerDashboard: React.FC = () => {
           </div>
 
           <div className="divide-y divide-slate-100">
-            {stats?.upcomingSessions?.length === 0 ? (
+            {!stats?.upcomingSessions || stats.upcomingSessions.length === 0 ? (
               <p className="text-xs text-slate-400 py-6 text-center">No upcoming sessions right now.</p>
             ) : (
-              stats?.upcomingSessions?.map((session: any) => (
+              stats.upcomingSessions.map((session) => (
                 <div
                   key={session._id}
                   className="py-3.5 flex items-center justify-between gap-4 hover:bg-slate-50/60 transition-colors rounded-xl px-2"
@@ -211,13 +233,13 @@ export const LearnerDashboard: React.FC = () => {
           </div>
 
           <div className="space-y-3 flex-1 overflow-y-auto">
-            {stats?.recentFeedbackSessions?.length === 0 ? (
+            {!stats?.recentFeedbackSessions || stats.recentFeedbackSessions.length === 0 ? (
               <p className="text-xs text-slate-400 py-6 text-center">No feedback shared yet.</p>
             ) : (
-              stats?.recentFeedbackSessions?.map((s: any) => (
+              stats.recentFeedbackSessions.map((s) => (
                 <div key={s._id} className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs">
                   <p className="font-semibold text-slate-800 text-[11px] mb-1">{s.title}</p>
-                  <p className="text-slate-600 italic">"{s.learnerFeedback}"</p>
+                  <p className="text-slate-600 italic">&ldquo;{s.learnerFeedback}&rdquo;</p>
                 </div>
               ))
             )}

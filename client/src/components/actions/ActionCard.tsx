@@ -2,10 +2,7 @@ import React, { useState } from 'react';
 import {
   Calendar,
   AlertTriangle,
-  History,
   CheckCircle2,
-  Clock,
-  Circle,
   MoreVertical,
   Trash2,
   Edit2,

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Clock,
   Calendar,
@@ -6,14 +7,30 @@ import {
   History,
   Target,
   Award,
-  ArrowRight,
+  ExternalLink,
 } from 'lucide-react';
 import api from '@/services/api';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { EmptyState } from '@/components/common/EmptyState';
 
+interface TimelineEvent {
+  id: string;
+  type: 'session' | 'carry_forward' | 'action_completed' | 'goal_created' | 'goal_completed';
+  title: string;
+  description?: string;
+  date: string;
+  status?: string;
+  metadata?: {
+    sessionId?: string;
+    carriedCount?: number;
+    priority?: string;
+    category?: string;
+    progress?: number;
+  };
+}
+
 export const TimelinePage: React.FC = () => {
-  const [timeline, setTimeline] = useState<any[]>([]);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -42,6 +59,8 @@ export const TimelinePage: React.FC = () => {
         return <History className="w-4 h-4 text-amber-600" />;
       case 'action_completed':
         return <CheckCircle2 className="w-4 h-4 text-emerald-600" />;
+      case 'goal_created':
+        return <Target className="w-4 h-4 text-sky-600" />;
       case 'goal_completed':
         return <Award className="w-4 h-4 text-purple-600" />;
       default:
@@ -57,6 +76,8 @@ export const TimelinePage: React.FC = () => {
         return 'border-amber-500 bg-amber-50';
       case 'action_completed':
         return 'border-emerald-500 bg-emerald-50';
+      case 'goal_created':
+        return 'border-sky-500 bg-sky-50';
       case 'goal_completed':
         return 'border-purple-500 bg-purple-50';
       default:
@@ -69,7 +90,7 @@ export const TimelinePage: React.FC = () => {
       <div>
         <h1 className="text-2xl font-black text-slate-900 tracking-tight">Mentoring Journey Timeline</h1>
         <p className="text-sm text-slate-500 mt-0.5">
-          Chronological record of sessions held, goals reached, and actions carried forward
+          Chronological record of sessions held, goals created & reached, and actions carried forward
         </p>
       </div>
 
@@ -109,16 +130,29 @@ export const TimelinePage: React.FC = () => {
                   <p className="text-xs text-slate-600 line-clamp-3">{event.description}</p>
                 )}
 
-                {/* Additional event tags */}
-                {event.metadata && (
-                  <div className="mt-3 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                    {event.metadata.carriedCount !== undefined && event.metadata.carriedCount > 0 && (
-                      <span className="bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-md border border-amber-200">
-                        {event.metadata.carriedCount} tasks carried
-                      </span>
-                    )}
-                    {event.metadata.priority && (
-                      <span className="capitalize font-medium">Priority: {event.metadata.priority}</span>
+                {/* Additional event tags & link */}
+                {(event.metadata || event.status) && (
+                  <div className="mt-3 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {event.metadata?.carriedCount !== undefined && event.metadata.carriedCount > 0 && (
+                        <span className="bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-md border border-amber-200">
+                          {event.metadata.carriedCount} tasks carried
+                        </span>
+                      )}
+                      {event.metadata?.priority && (
+                        <span className="capitalize font-medium">Priority: {event.metadata.priority}</span>
+                      )}
+                      {event.metadata?.category && (
+                        <span className="capitalize font-medium">Category: {event.metadata.category}</span>
+                      )}
+                    </div>
+                    {event.metadata?.sessionId && (
+                      <Link
+                        to={`/sessions/${event.metadata.sessionId}`}
+                        className="inline-flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-800"
+                      >
+                        Open Session <ExternalLink className="w-3 h-3" />
+                      </Link>
                     )}
                   </div>
                 )}

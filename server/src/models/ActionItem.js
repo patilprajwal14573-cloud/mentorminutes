@@ -116,5 +116,12 @@ const actionItemSchema = new mongoose.Schema(
 
 actionItemSchema.index({ relationship: 1, status: 1, carried: 1 });
 actionItemSchema.index({ session: 1, status: 1 });
+actionItemSchema.index(
+  { session: 1, carriedForwardFrom: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { carriedForwardFrom: { $type: 'objectId' } },
+  }
+);
 
 module.exports = mongoose.model('ActionItem', actionItemSchema);

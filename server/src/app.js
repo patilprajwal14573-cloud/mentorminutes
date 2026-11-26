@@ -8,22 +8,39 @@ const errorHandler = require('./middleware/error');
 
 // Route imports
 const authRoutes = require('./routes/authRoutes');
+const userRoutes = require('./routes/userRoutes');
 const relationshipRoutes = require('./routes/relationshipRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
 const actionRoutes = require('./routes/actionRoutes');
 const goalRoutes = require('./routes/goalRoutes');
+const milestoneRoutes = require('./routes/milestoneRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
 const healthRoutes = require('./routes/healthRoutes');
 
 const app = express();
 
-// Security middleware
-app.use(helmet());
+// Security middleware (allow external HTTPS avatar images and configured API origins)
+const configuredOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
 
-// CORS configuration
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        'img-src': ["'self'", 'data:', 'https:'],
+        'connect-src': ["'self'", ...configuredOrigins, 'https:'],
+      },
+    },
+  })
+);
+
+// CORS configuration (supports comma-separated CLIENT_URL origins in production)
 const allowedOrigins = [
-  process.env.CLIENT_URL || 'http://localhost:5173',
+  ...configuredOrigins,
   'http://127.0.0.1:5173',
   'http://localhost:3000',
 ];
@@ -56,10 +73,12 @@ app.use('/api', healthRoutes);
 
 // Mount API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/relationships', relationshipRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/actions', actionRoutes);
 app.use('/api/goals', goalRoutes);
+app.use('/api/milestones', milestoneRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/notifications', notificationRoutes);
 

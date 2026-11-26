@@ -1,10 +1,11 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { getJwtSecret } = require('../config/env');
 
 const signToken = (id) => {
   return jwt.sign(
     { id },
-    process.env.JWT_SECRET || 'mentorminutes_jwt_secret_dev_key_2026_secure',
+    getJwtSecret(),
     { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
 };
@@ -147,7 +148,23 @@ exports.updateProfile = async (req, res, next) => {
     if (companyOrSchool !== undefined) fieldsToUpdate.companyOrSchool = companyOrSchool;
     if (expertise !== undefined) fieldsToUpdate.expertise = expertise;
     if (interests !== undefined) fieldsToUpdate.interests = interests;
-    if (settings !== undefined) fieldsToUpdate.settings = settings;
+
+    if (settings && typeof settings === 'object') {
+      const existingUser = await User.findById(req.user.id);
+      fieldsToUpdate.settings = {
+        emailNotifications:
+          settings.emailNotifications !== undefined
+            ? Boolean(settings.emailNotifications)
+            : existingUser?.settings?.emailNotifications ?? true,
+        sessionReminders:
+          settings.sessionReminders !== undefined
+            ? Boolean(settings.sessionReminders)
+            : existingUser?.settings?.sessionReminders ?? true,
+        theme: ['light', 'dark', 'system'].includes(settings.theme)
+          ? settings.theme
+          : existingUser?.settings?.theme ?? 'light',
+      };
+    }
 
     const user = await User.findByIdAndUpdate(req.user.id, fieldsToUpdate, {
       new: true,

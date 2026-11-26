@@ -9,12 +9,14 @@ async function startServer() {
   try {
     await connectDB();
 
-    // Auto-seed if database is completely empty
-    const userCount = await User.countDocuments();
-    if (userCount === 0) {
-      console.log('Database is empty. Automatically initializing demonstration dataset...');
-      const seedDatabase = require('./seed');
-      await seedDatabase(false);
+    // Opt-in auto-seed only when explicitly enabled via AUTO_SEED=true and database is empty
+    if (process.env.AUTO_SEED === 'true' && process.env.NODE_ENV !== 'production') {
+      const userCount = await User.countDocuments();
+      if (userCount === 0) {
+        console.log('Database is empty and AUTO_SEED=true. Initializing demonstration dataset...');
+        const seedDatabase = require('./seed');
+        await seedDatabase(false);
+      }
     }
 
     const server = app.listen(PORT, () => {

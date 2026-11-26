@@ -66,6 +66,11 @@ async function executeCarryForward(relationshipId, newSessionId, selectedActionI
     return [];
   }
 
+  // If mentor explicitly passed an empty selection array, carry nothing
+  if (Array.isArray(selectedActionIds) && selectedActionIds.length === 0) {
+    return [];
+  }
+
   // Filter criteria for open items
   const filter = {
     session: prevSession._id,
@@ -73,7 +78,7 @@ async function executeCarryForward(relationshipId, newSessionId, selectedActionI
     carried: false,
   };
 
-  if (selectedActionIds && Array.isArray(selectedActionIds) && selectedActionIds.length > 0) {
+  if (Array.isArray(selectedActionIds) && selectedActionIds.length > 0) {
     filter._id = { $in: selectedActionIds };
   }
 
@@ -85,45 +90,64 @@ async function executeCarryForward(relationshipId, newSessionId, selectedActionI
   const carriedItems = [];
 
   for (const item of openActions) {
-    const originalSessionId = item.originalSession || item.session;
+    // Check if already carried into this target session
+    const alreadyInTarget = await ActionItem.exists({
+      session: newSession._id,
+      carriedForwardFrom: item._id,
+    });
+    if (alreadyInTarget) continue;
+
+    // Atomically claim source item so concurrent requests cannot duplicate it
+    const claimedItem = await ActionItem.findOneAndUpdate(
+      { _id: item._id, carried: false },
+      { $set: { carried: true } },
+      { new: true }
+    );
+    if (!claimedItem) continue;
+
+    const originalSessionId = claimedItem.originalSession || claimedItem.session;
     const historyEntry = {
       carriedAt: new Date(),
-      fromSession: item.session,
+      fromSession: claimedItem.session,
       toSession: newSession._id,
-      reason: `Unfinished in Session #${prevSession.sessionNumber} (${item.status})`,
+      reason: `Unfinished in Session #${prevSession.sessionNumber} (${claimedItem.status})`,
     };
 
     const newAction = new ActionItem({
       relationship: relationshipId,
       session: newSession._id,
-      title: item.title,
-      description: item.description,
-      assignedTo: item.assignedTo,
-      assignedToRole: item.assignedToRole,
-      createdBy: item.createdBy,
-      priority: item.priority,
-      dueDate: item.dueDate,
-      status: item.status,
+      title: claimedItem.title,
+      description: claimedItem.description,
+      assignedTo: claimedItem.assignedTo,
+      assignedToRole: claimedItem.assignedToRole,
+      createdBy: claimedItem.createdBy,
+      priority: claimedItem.priority,
+      dueDate: claimedItem.dueDate,
+      status: claimedItem.status,
       carried: false,
-      carriedForwardFrom: item._id,
+      carriedForwardFrom: claimedItem._id,
       originalSession: originalSessionId,
-      carryCount: (item.carryCount || 0) + 1,
-      carryHistory: [...(item.carryHistory || []), historyEntry],
+      carryCount: (claimedItem.carryCount || 0) + 1,
+      carryHistory: [...(claimedItem.carryHistory || []), historyEntry],
     });
 
-    await newAction.save();
+    try {
+      await newAction.save();
+    } catch (saveErr) {
+      // Restore carried flag if save failed unexpectedly (unless duplicate key)
+      if (saveErr.code !== 11000) {
+        await ActionItem.findByIdAndUpdate(claimedItem._id, { $set: { carried: false } });
+      }
+      throw saveErr;
+    }
     carriedItems.push(newAction);
-
-    // Mark previous item as carried so it is never duplicated
-    item.carried = true;
-    await item.save();
 
     // Create notification for assigned user
     try {
       await Notification.create({
-        recipient: item.assignedTo,
+        recipient: claimedItem.assignedTo,
         title: 'Action Item Carried Forward',
-        message: `Task "${item.title}" was carried forward into Session #${newSession.sessionNumber}`,
+        message: `Task "${claimedItem.title}" was carried forward into Session #${newSession.sessionNumber}`,
         type: 'action',
         link: `/sessions/${newSession._id}`,
       });

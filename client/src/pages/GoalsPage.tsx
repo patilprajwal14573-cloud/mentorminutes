@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Target,
   Plus,
@@ -9,6 +9,7 @@ import {
   Award,
   Filter,
   Trash2,
+  Edit2,
 } from 'lucide-react';
 import api from '@/services/api';
 import { useAuth } from '@/context/AuthContext';
@@ -16,7 +17,11 @@ import { Goal, MentoringRelationship } from '@/types';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { Modal } from '@/components/common/Modal';
 import { EmptyState } from '@/components/common/EmptyState';
-import { Badge, PriorityBadge, StatusBadge } from '@/components/common/Badge';
+import { PriorityBadge, StatusBadge } from '@/components/common/Badge';
+
+type GoalCategory = Goal['category'];
+type GoalPriority = Goal['priority'];
+type GoalStatus = Goal['status'];
 
 export const GoalsPage: React.FC = () => {
   const { user } = useAuth();
@@ -31,16 +36,27 @@ export const GoalsPage: React.FC = () => {
   const [relationshipId, setRelationshipId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<any>('technical');
-  const [priority, setPriority] = useState<any>('medium');
+  const [category, setCategory] = useState<GoalCategory>('technical');
+  const [priority, setPriority] = useState<GoalPriority>('medium');
   const [targetDate, setTargetDate] = useState('');
   const [milestonesText, setMilestonesText] = useState('');
+
+  // Edit Goal Modal
+  const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editCategory, setEditCategory] = useState<GoalCategory>('technical');
+  const [editPriority, setEditPriority] = useState<GoalPriority>('medium');
+  const [editStatus, setEditStatus] = useState<GoalStatus>('in-progress');
+  const [editProgress, setEditProgress] = useState(0);
+  const [editTargetDate, setEditTargetDate] = useState('');
+  const [editCompletionNotes, setEditCompletionNotes] = useState('');
 
   // Add Milestone Modal
   const [activeGoalForMilestone, setActiveGoalForMilestone] = useState<Goal | null>(null);
   const [newMilestoneTitle, setNewMilestoneTitle] = useState('');
 
-  const fetchGoals = async () => {
+  const fetchGoals = useCallback(async () => {
     try {
       const [goalRes, relRes] = await Promise.all([
         api.get('/goals', {
@@ -55,20 +71,18 @@ export const GoalsPage: React.FC = () => {
       if (goalRes.data.success) setGoals(goalRes.data.goals);
       if (relRes.data.success) {
         setRelationships(relRes.data.relationships);
-        if (!relationshipId && relRes.data.relationships.length > 0) {
-          setRelationshipId(relRes.data.relationships[0]._id);
-        }
+        setRelationshipId((prev) => prev || relRes.data.relationships[0]?._id || '');
       }
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [statusFilter, categoryFilter]);
 
   useEffect(() => {
     fetchGoals();
-  }, [statusFilter, categoryFilter]);
+  }, [fetchGoals]);
 
   const handleToggleMilestone = async (goalId: string, milestoneId: string) => {
     try {
@@ -135,8 +149,43 @@ export const GoalsPage: React.FC = () => {
     }
   };
 
+  const openEditModal = (goal: Goal) => {
+    setEditingGoal(goal);
+    setEditTitle(goal.title);
+    setEditDesc(goal.description || '');
+    setEditCategory(goal.category);
+    setEditPriority(goal.priority);
+    setEditStatus(goal.status);
+    setEditProgress(goal.progress);
+    setEditTargetDate(goal.targetDate ? new Date(goal.targetDate).toISOString().slice(0, 10) : '');
+    setEditCompletionNotes(goal.completionNotes || '');
+  };
+
+  const handleUpdateGoal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGoal) return;
+    try {
+      const res = await api.put(`/goals/${editingGoal._id}`, {
+        title: editTitle,
+        description: editDesc,
+        category: editCategory,
+        priority: editPriority,
+        status: editStatus,
+        progress: editingGoal.milestones?.length ? undefined : editProgress,
+        targetDate: editTargetDate || null,
+        completionNotes: editCompletionNotes,
+      });
+      if (res.data.success) {
+        setEditingGoal(null);
+        fetchGoals();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleDeleteGoal = async (goalId: string) => {
-    if (!confirm('Are you sure you want to delete this goal?')) return;
+    if (!window.confirm('Are you sure you want to delete this goal?')) return;
     try {
       await api.delete(`/goals/${goalId}`);
       setGoals((prev) => prev.filter((g) => g._id !== goalId));
@@ -154,11 +203,12 @@ export const GoalsPage: React.FC = () => {
         <div>
           <h1 className="text-2xl font-black text-slate-900 tracking-tight">Mentorship Goals</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Track measurable milestones, professional targets, and capability growth
+            Track measurable milestones, deadlines, and capability growth
           </p>
         </div>
 
         <button
+          type="button"
           onClick={() => setShowNewGoalModal(true)}
           className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm transition-all"
         >
@@ -196,6 +246,7 @@ export const GoalsPage: React.FC = () => {
           <option value="project">Project</option>
           <option value="soft-skills">Soft Skills</option>
           <option value="academic">Academic</option>
+          <option value="other">Other</option>
         </select>
       </div>
 
@@ -212,11 +263,20 @@ export const GoalsPage: React.FC = () => {
         <div className="grid md:grid-cols-2 gap-6">
           {goals.map((goal) => {
             const isCompleted = goal.status === 'completed' || goal.progress === 100;
+            const isOverdue =
+              !isCompleted &&
+              goal.targetDate &&
+              new Date(goal.targetDate) < new Date();
+
             return (
               <div
                 key={goal._id}
                 className={`bg-white rounded-2xl p-6 border transition-all shadow-2xs hover:shadow-md flex flex-col ${
-                  isCompleted ? 'border-emerald-200 bg-emerald-50/10' : 'border-slate-200/80'
+                  isCompleted
+                    ? 'border-emerald-200 bg-emerald-50/10'
+                    : isOverdue
+                    ? 'border-rose-200 bg-rose-50/10'
+                    : 'border-slate-200/80'
                 }`}
               >
                 <div className="flex items-start justify-between gap-3 mb-3">
@@ -227,17 +287,33 @@ export const GoalsPage: React.FC = () => {
                       </span>
                       <PriorityBadge priority={goal.priority} />
                       <StatusBadge status={goal.status} />
+                      {isOverdue && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-100 text-rose-700">
+                          <AlertTriangle className="w-3 h-3" /> Overdue
+                        </span>
+                      )}
                     </div>
                     <h3 className="text-base font-bold text-slate-900">{goal.title}</h3>
                   </div>
 
-                  <button
-                    onClick={() => handleDeleteGoal(goal._id)}
-                    className="text-slate-300 hover:text-rose-500 p-1 transition-colors"
-                    title="Delete goal"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(goal)}
+                      className="text-slate-400 hover:text-indigo-600 p-1 transition-colors"
+                      title="Edit goal"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteGoal(goal._id)}
+                      className="text-slate-300 hover:text-rose-500 p-1 transition-colors"
+                      title="Delete goal"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
                 {goal.description && (
@@ -270,6 +346,7 @@ export const GoalsPage: React.FC = () => {
                       {goal.milestones?.length || 0})
                     </span>
                     <button
+                      type="button"
                       onClick={() => setActiveGoalForMilestone(goal)}
                       className="text-[11px] text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1"
                     >
@@ -297,10 +374,16 @@ export const GoalsPage: React.FC = () => {
                   </div>
                 </div>
 
+                {goal.completionNotes && (
+                  <p className="text-[11px] text-emerald-700 bg-emerald-50 px-3 py-2 rounded-lg mb-3">
+                    <strong>Completion Notes:</strong> {goal.completionNotes}
+                  </p>
+                )}
+
                 {/* Footer Meta */}
                 <div className="mt-auto pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
                   {goal.targetDate && (
-                    <span className="flex items-center gap-1">
+                    <span className={`flex items-center gap-1 ${isOverdue ? 'text-rose-600 font-semibold' : ''}`}>
                       <Calendar className="w-3.5 h-3.5" /> Target:{' '}
                       {new Date(goal.targetDate).toLocaleDateString()}
                     </span>
@@ -355,6 +438,132 @@ export const GoalsPage: React.FC = () => {
         </form>
       </Modal>
 
+      {/* Edit Goal Modal */}
+      <Modal
+        isOpen={!!editingGoal}
+        onClose={() => setEditingGoal(null)}
+        title="Edit Goal"
+        subtitle="Update goal status, target deadline, and completion notes"
+      >
+        <form onSubmit={handleUpdateGoal} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Goal Title</label>
+            <input
+              type="text"
+              required
+              value={editTitle}
+              onChange={(e) => setEditTitle(e.target.value)}
+              className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Description</label>
+            <textarea
+              rows={2}
+              value={editDesc}
+              onChange={(e) => setEditDesc(e.target.value)}
+              className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Category</label>
+              <select
+                value={editCategory}
+                onChange={(e) => setEditCategory(e.target.value as GoalCategory)}
+                className="mt-1 block w-full px-2.5 py-2 text-xs border border-slate-300 rounded-xl"
+              >
+                <option value="technical">Technical</option>
+                <option value="career">Career</option>
+                <option value="project">Project</option>
+                <option value="soft-skills">Soft Skills</option>
+                <option value="academic">Academic</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Priority</label>
+              <select
+                value={editPriority}
+                onChange={(e) => setEditPriority(e.target.value as GoalPriority)}
+                className="mt-1 block w-full px-2.5 py-2 text-xs border border-slate-300 rounded-xl"
+              >
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Status</label>
+              <select
+                value={editStatus}
+                onChange={(e) => setEditStatus(e.target.value as GoalStatus)}
+                className="mt-1 block w-full px-2.5 py-2 text-xs border border-slate-300 rounded-xl"
+              >
+                <option value="not-started">Not Started</option>
+                <option value="in-progress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="on-hold">On Hold</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700">Target Date</label>
+              <input
+                type="date"
+                value={editTargetDate}
+                onChange={(e) => setEditTargetDate(e.target.value)}
+                className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl"
+              />
+            </div>
+            {editingGoal && (!editingGoal.milestones || editingGoal.milestones.length === 0) && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700">Progress ({editProgress}%)</label>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={editProgress}
+                  onChange={(e) => setEditProgress(Number(e.target.value))}
+                  className="mt-3 w-full accent-indigo-600"
+                />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Completion Notes</label>
+            <textarea
+              rows={2}
+              value={editCompletionNotes}
+              onChange={(e) => setEditCompletionNotes(e.target.value)}
+              placeholder="Reflections or outcome summary..."
+              className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setEditingGoal(null)}
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl"
+            >
+              Save Goal
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       {/* New Goal Modal */}
       <Modal
         isOpen={showNewGoalModal}
@@ -390,12 +599,23 @@ export const GoalsPage: React.FC = () => {
             />
           </div>
 
+          <div>
+            <label className="block text-xs font-semibold text-slate-700">Description</label>
+            <textarea
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What does achieving this goal look like?"
+              className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700">Category</label>
               <select
                 value={category}
-                onChange={(e) => setCategory(e.target.value as any)}
+                onChange={(e) => setCategory(e.target.value as GoalCategory)}
                 className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="technical">Technical</option>
@@ -403,6 +623,7 @@ export const GoalsPage: React.FC = () => {
                 <option value="project">Project</option>
                 <option value="soft-skills">Soft Skills</option>
                 <option value="academic">Academic</option>
+                <option value="other">Other</option>
               </select>
             </div>
 
@@ -410,7 +631,7 @@ export const GoalsPage: React.FC = () => {
               <label className="block text-xs font-semibold text-slate-700">Priority</label>
               <select
                 value={priority}
-                onChange={(e) => setPriority(e.target.value as any)}
+                onChange={(e) => setPriority(e.target.value as GoalPriority)}
                 className="mt-1 block w-full px-3 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="low">Low</option>

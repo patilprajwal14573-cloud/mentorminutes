@@ -38,7 +38,15 @@ router.patch(
   updateActionStatus
 );
 
-router.put('/:id', updateActionItem);
+router.put(
+  '/:id',
+  [
+    body('priority').optional().isIn(['low', 'medium', 'high']).withMessage('Invalid priority'),
+    body('assignedToRole').optional().isIn(['mentor', 'learner']),
+    validate,
+  ],
+  updateActionItem
+);
 router.delete('/:id', deleteActionItem);
 
 module.exports = router;

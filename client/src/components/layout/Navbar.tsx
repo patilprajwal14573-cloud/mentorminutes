@@ -3,12 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Bell,
   LogOut,
-  User,
   Settings,
   Menu,
-  Sparkles,
-  ExternalLink,
-  Check,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
@@ -35,7 +31,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onToggleSidebar }) => {
           setNotifications(res.data.notifications || []);
           setUnreadCount(res.data.unreadCount || 0);
         }
-      } catch (err) {
+      } catch {
         // Silent fail for polling
       }
     };

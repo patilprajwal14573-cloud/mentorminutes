@@ -9,23 +9,58 @@ const Goal = require('./models/Goal');
 const Notification = require('./models/Notification');
 const { executeCarryForward } = require('./services/carryForwardService');
 
+const DEMO_EMAILS = [
+  'sarah.mitchell@mentorminutes.dev',
+  'alex.rivera@mentorminutes.dev',
+  'emily.chen@mentorminutes.dev',
+  'marcus.j@mentorminutes.dev',
+  'priya.sharma@mentorminutes.dev',
+  'david.kim@mentorminutes.dev',
+];
+
+/**
+ * Safely deletes ONLY records tied to the dedicated demo accounts,
+ * leaving all non-demo / production user records untouched.
+ */
+async function resetDemoData(disconnectAfter = false) {
+  if (mongoose.connection.readyState !== 1) {
+    await connectDB();
+  }
+
+  const demoUsers = await User.find({ email: { $in: DEMO_EMAILS } }).select('_id');
+  const demoUserIds = demoUsers.map((u) => u._id);
+
+  if (demoUserIds.length > 0) {
+    const demoRels = await MentoringRelationship.find({
+      $or: [{ mentor: { $in: demoUserIds } }, { learner: { $in: demoUserIds } }],
+    }).select('_id');
+    const demoRelIds = demoRels.map((r) => r._id);
+
+    await Promise.all([
+      Notification.deleteMany({ recipient: { $in: demoUserIds } }),
+      ActionItem.deleteMany({ relationship: { $in: demoRelIds } }),
+      Goal.deleteMany({ relationship: { $in: demoRelIds } }),
+      Session.deleteMany({ relationship: { $in: demoRelIds } }),
+      MentoringRelationship.deleteMany({ _id: { $in: demoRelIds } }),
+      User.deleteMany({ _id: { $in: demoUserIds } }),
+    ]);
+  }
+
+  console.log('🧹 Safely reset dedicated demo dataset (non-demo records preserved).');
+
+  if (disconnectAfter) {
+    await mongoose.disconnect();
+  }
+}
+
 async function seedDatabase(disconnectAfter = true) {
   console.log('🌱 Starting MentorMinutes Demonstration Data Seeding...');
   if (mongoose.connection.readyState !== 1) {
     await connectDB();
   }
 
-  // Clear existing demo records
-  await Promise.all([
-    User.deleteMany({}),
-    MentoringRelationship.deleteMany({}),
-    Session.deleteMany({}),
-    ActionItem.deleteMany({}),
-    Goal.deleteMany({}),
-    Notification.deleteMany({}),
-  ]);
-
-  console.log('🧹 Cleaned existing database collections.');
+  // Safely clear only dedicated demo records before re-seeding
+  await resetDemoData(false);
 
   // 1. Create Mentors
   const mentor1 = await User.create({
@@ -506,7 +541,9 @@ async function seedDatabase(disconnectAfter = true) {
 }
 
 if (require.main === module) {
-  seedDatabase()
+  const isResetOnly = process.argv.includes('--reset');
+  const task = isResetOnly ? resetDemoData(true) : seedDatabase(true);
+  task
     .then(() => process.exit(0))
     .catch((err) => {
       console.error('Seeding error:', err);
@@ -515,3 +552,5 @@ if (require.main === module) {
 }
 
 module.exports = seedDatabase;
+module.exports.resetDemoData = resetDemoData;
+module.exports.DEMO_EMAILS = DEMO_EMAILS;

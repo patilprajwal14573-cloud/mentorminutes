@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { LoadingSpinner } from './components/common/LoadingSpinner';
@@ -57,6 +57,27 @@ const PublicRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
+// Invitation Link Handler (/join/:code)
+const JoinInviteRoute: React.FC = () => {
+  const { code } = useParams<{ code: string }>();
+  const { isAuthenticated, loading } = useAuth();
+  const safeCode = encodeURIComponent((code || '').toUpperCase());
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <LoadingSpinner text="Loading invitation..." />
+      </div>
+    );
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to={`/relationships?invite=${safeCode}`} replace />;
+  }
+
+  return <Navigate to={`/register?invite=${safeCode}`} replace />;
+};
+
 export function App() {
   return (
     <AuthProvider>
@@ -80,6 +101,7 @@ export function App() {
               </PublicRoute>
             }
           />
+          <Route path="/join/:code" element={<JoinInviteRoute />} />
 
           {/* Protected Application Workspace */}
           <Route

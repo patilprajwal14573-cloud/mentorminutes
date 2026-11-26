@@ -8,7 +8,6 @@ import {
   Target,
   Users,
   Trash2,
-  ArrowRight,
   ExternalLink,
 } from 'lucide-react';
 import api from '@/services/api';
