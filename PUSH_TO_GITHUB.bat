@@ -4,7 +4,7 @@ color 0A
 echo ======================================================================
 echo           MentorMinutes - Push Code to GitHub
 echo ======================================================================
-echo Repository: https://github.com/patilprajwal14573-cloud/mentorminutes-project
+echo Repository: https://github.com/patilprajwal14573-cloud/mentorminutes
 echo.
 echo Uploading project files... Please click "Sign in with your browser"
 echo if the GitHub authorization window appears!
@@ -16,7 +16,7 @@ echo.
 echo.
 echo ======================================================================
 echo SUCCESS! Your code is now live on GitHub:
-echo https://github.com/patilprajwal14573-cloud/mentorminutes-project
+echo https://github.com/patilprajwal14573-cloud/mentorminutes
 echo.
 echo Now open Render to activate your live .onrender.com link:
 echo https://dashboard.render.com/
