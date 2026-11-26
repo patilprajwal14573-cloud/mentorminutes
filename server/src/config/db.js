@@ -3,12 +3,13 @@ const mongoose = require('mongoose');
 let mongodInstance = null;
 
 async function connectDB() {
-  const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/mentorminutes';
+  const rawUri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/mentorminutes';
+  const uri = rawUri.replace(/[\r\n]+/g, '').trim();
 
   try {
-    // Attempt standard connection with 2.5s timeout
+    // Attempt standard connection (allow longer timeout in production across regions)
     await mongoose.connect(uri, {
-      serverSelectionTimeoutMS: 2500,
+      serverSelectionTimeoutMS: process.env.NODE_ENV === 'production' ? 10000 : 2500,
     });
     console.log(`[Database] Connected to MongoDB at: ${uri.replace(/\/\/.*@/, '//<credentials>@')}`);
     return;
